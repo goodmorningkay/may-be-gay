@@ -1,0 +1,11 @@
+# Opt-in only: makes the local DB available to host-side migration/test tooling.
+# Never use this override on a public host.
+services:
+  db:
+    # Docker does not publish ports on an internal-only network. This opt-in
+    # network is for local host tooling; the standard stack remains private.
+    networks: [database, tooling]
+    ports:
+      - "127.0.0.1:5432:5432"
+networks:
+  tooling:

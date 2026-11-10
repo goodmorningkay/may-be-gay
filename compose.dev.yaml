@@ -1,0 +1,12 @@
+# Optional source-mounted development server, behind the same local HTTPS proxy.
+# docker compose -f compose.yaml -f compose.dev.yaml up --build
+services:
+  app:
+    build:
+      target: development
+    environment:
+      NODE_ENV: development
+    volumes:
+      - ./src:/app/src:ro
+      - ./next.config.ts:/app/next.config.ts:ro
+      - ./tsconfig.json:/app/tsconfig.json:ro

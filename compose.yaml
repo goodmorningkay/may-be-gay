@@ -1,0 +1,87 @@
+name: may-be-gay
+
+# LOCAL DEVELOPMENT ONLY. This creates a private CA and uses deliberately public
+# development passwords. Production requires separate secrets and DNS-01 TLS.
+services:
+  db:
+    image: postgres:17.11-bookworm@sha256:665dc7b37ac52a17e298511414c21d23ffa4e6a6ef6225b3e5d59c7afb35e994
+    environment:
+      POSTGRES_DB: may_be_gay
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local-only-bootstrap}
+      MIGRATION_DATABASE_PASSWORD: ${MIGRATION_DATABASE_PASSWORD:-local-only-migrator}
+      APP_DATABASE_PASSWORD: ${APP_DATABASE_PASSWORD:-local-only-app}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/postgres/bootstrap.sh:/docker-entrypoint-initdb.d/10-bootstrap.sh:ro
+      - ./infra/postgres/bootstrap.sql:/opt/may-be-gay/bootstrap.sql:ro
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -h 127.0.0.1 -U postgres -d may_be_gay"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    networks: [database]
+    restart: unless-stopped
+
+  migrate:
+    build:
+      context: .
+      target: migrator
+    environment:
+      MIGRATION_DATABASE_URL: ${MIGRATION_DATABASE_URL:-postgres://may_be_migrator:local-only-migrator@db:5432/may_be_gay}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [database]
+    restart: "no"
+
+  app:
+    build:
+      context: .
+      target: runner
+    environment:
+      SITE_DOMAIN: ${SITE_DOMAIN:-may-be.localhost}
+      DATABASE_URL: ${DATABASE_URL:-postgres://may_be_app:local-only-app@db:5432/may_be_gay}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "const h=require('node:http');const r=h.get({host:'127.0.0.1',port:3000,path:'/',headers:{host:process.env.SITE_DOMAIN}},s=>{s.resume();process.exit(s.statusCode===200?0:1)});r.on('error',()=>process.exit(1));r.setTimeout(4000,()=>{r.destroy();process.exit(1)});"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    networks: [web, database]
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2.11.9-alpine@sha256:0bbb055bda6793c999bde78b1b5ce3e89f829fb031af2cf50056ea1246559fee
+    environment:
+      SITE_DOMAIN: ${SITE_DOMAIN:-may-be.localhost}
+    ports:
+      - "127.0.0.1:80:80"
+      - "127.0.0.1:443:443"
+    volumes:
+      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      app:
+        condition: service_healthy
+    networks: [web]
+    restart: unless-stopped
+
+networks:
+  web:
+  database:
+    internal: true
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:

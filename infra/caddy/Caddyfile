@@ -1,0 +1,51 @@
+{
+	# Local CA only; clients explicitly trust its root certificate.
+	skip_install_trust
+	admin off
+}
+
+# Host/SNI can differ. Unmatched HTTP authorities must not fall through to
+# Caddy's empty 200 response, even when TLS used a recognized server name.
+:443 {
+	header {
+		Cache-Control "private, no-store"
+		X-Content-Type-Options "nosniff"
+		Content-Security-Policy "default-src 'none'; frame-ancestors 'none'"
+	}
+	respond "Page not found." 404
+}
+
+:80 {
+	header {
+		Cache-Control "private, no-store"
+		X-Content-Type-Options "nosniff"
+	}
+	respond "Page not found." 404
+}
+
+{$SITE_DOMAIN:may-be.localhost}, app.{$SITE_DOMAIN:may-be.localhost}, *.{$SITE_DOMAIN:may-be.localhost} {
+	tls internal
+
+	# A second boundary for future authenticated routes, before the app's own
+	# strict hostname/path checks. Sibling profile hosts never reach these paths.
+	@wrong_control_host {
+		not host app.{$SITE_DOMAIN:may-be.localhost}
+		path /api /api/* /editor /editor/* /preview /preview/* /admin /admin/* /settings /settings/* /login /signup
+	}
+	header @wrong_control_host {
+		Cache-Control "private, no-store"
+		X-Content-Type-Options "nosniff"
+	}
+	respond @wrong_control_host "Page not found." 404
+
+	reverse_proxy app:3000 {
+		# Preserve the HTTP Host for application hostname validation. Never pass
+		# client-supplied host/proxy identity headers through as trusted identity.
+		header_up Host {http.request.host}
+		header_up -Forwarded
+		header_up -X-Forwarded-Host
+		header_up -X-Original-Host
+		header_up -X-May-Be-Host
+		header_up -X-Middleware-Subrequest
+	}
+}

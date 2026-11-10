@@ -1,0 +1,48 @@
+<style>
+  :root {
+    --mbg-image: var(--chart-1);
+    --mbg-music: var(--chart-2);
+  }
+  #mbg-transfer {
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    display: grid;
+    gap: 16px;
+  }
+  #mbg-transfer p, #mbg-transfer figure { margin: 0; }
+  #mbg-transfer .caption { color: var(--muted-foreground); }
+  #mbg-transfer .plot { display: grid; gap: 22px; height: 210px; }
+  #mbg-transfer .bar-label { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+  #mbg-transfer .amount { font-variant-numeric: tabular-nums; }
+  #mbg-transfer .bar-track { display: flex; height: 26px; }
+  #mbg-transfer .images { background: var(--mbg-image); }
+  #mbg-transfer .music { background: var(--mbg-music); }
+  #mbg-transfer .axis { display: flex; justify-content: space-between; color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
+  #mbg-transfer .axis-label { text-align: center; color: var(--muted-foreground); }
+  #mbg-transfer .legend { display: flex; gap: 20px; flex-wrap: wrap; }
+  #mbg-transfer .legend-item { display: inline-flex; gap: 8px; align-items: center; }
+  #mbg-transfer .swatch { width: 12px; height: 12px; }
+</style>
+<section id="mbg-transfer" aria-label="Illustrative monthly media transfer">
+  <p id="mbg-transfer-title">Illustrative media transfer · 100,000 visits</p>
+  <p id="mbg-transfer-inputs" class="caption">Model inputs: 1 MB of images per visit; a 3 MB song played by 25% of visitors. Decimal units, before caching.</p>
+  <figure class="plot" role="img" aria-labelledby="mbg-transfer-title" aria-describedby="mbg-transfer-inputs mbg-transfer-note">
+    <div>
+      <div class="bar-label"><span>Images only</span><span class="amount">100 GB</span></div>
+      <div class="bar-track" aria-hidden="true"><div class="images" style="width: 50%"></div></div>
+    </div>
+    <div>
+      <div class="bar-label"><span>Images + optional music</span><span class="amount">175 GB</span></div>
+      <div class="bar-track" aria-hidden="true"><div class="images" style="width: 50%"></div><div class="music" style="width: 37.5%"></div></div>
+    </div>
+    <div>
+      <div class="axis" aria-hidden="true"><span>0</span><span>50</span><span>100</span><span>150</span><span>200</span></div>
+      <div class="axis-label">GB transferred</div>
+    </div>
+  </figure>
+  <div class="legend" aria-label="Chart legend">
+    <span class="legend-item"><span class="swatch images" aria-hidden="true"></span>Images</span>
+    <span class="legend-item"><span class="swatch music" aria-hidden="true"></span>Music · 75 GB added</span>
+  </div>
+  <p id="mbg-transfer-note" class="caption">Example arithmetic, not a traffic forecast or server benchmark. Excludes application files, retries and bots.</p>
+</section>

@@ -1,0 +1,37 @@
+<style>
+  #monthly-service-costs { color: var(--foreground); font-family: var(--font-sans); }
+  #monthly-service-costs .caption { color: var(--muted-foreground); margin: 0 0 12px; }
+  #monthly-service-costs .plot { display: grid; gap: 14px; }
+  #monthly-service-costs .label { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
+  #monthly-service-costs .value { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  #monthly-service-costs svg { display: block; width: 100%; height: 16px; overflow: visible; }
+  #monthly-service-costs .track { fill: var(--muted); }
+  #monthly-service-costs .storage { fill: var(--chart-1); }
+  #monthly-service-costs .email { fill: var(--chart-2); }
+  #monthly-service-costs .axis { display: flex; justify-content: space-between; color: var(--muted-foreground); margin-top: 6px; font-variant-numeric: tabular-nums; }
+  #monthly-service-costs .legend { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 12px; }
+  #monthly-service-costs .key { display: inline-block; width: 10px; height: 10px; margin-right: 6px; }
+  #monthly-service-costs .note { color: var(--muted-foreground); margin: 10px 0 0; }
+  #monthly-service-costs a { color: var(--foreground); }
+</style>
+<section id="monthly-service-costs" aria-label="Illustrative monthly service costs, excluding VPS, domain and tax">
+  <p class="caption">Illustrative service bills · USD/month · excludes VPS, domain and tax</p>
+  <div class="plot" role="img" aria-label="Within all free allowances: zero dollars per month. 50 GB-month of storage with free email: 60 cents per month. 50 GB-month of storage with Resend Pro: 20 dollars and 60 cents per month. R2 requests remain within free allowances in every example.">
+    <div>
+      <div class="label"><span>Within all free allowances</span><span class="value">$0.00</span></div>
+      <svg aria-hidden="true"><rect class="track" width="100%" height="16" /></svg>
+    </div>
+    <div>
+      <div class="label"><span>50 GB storage + free email</span><span class="value">$0.60</span></div>
+      <svg aria-hidden="true"><rect class="track" width="100%" height="16" /><rect class="storage" width="2.4%" height="16" /></svg>
+    </div>
+    <div>
+      <div class="label"><span>50 GB storage + Resend Pro</span><span class="value">$20.60</span></div>
+      <svg aria-hidden="true"><rect class="track" width="100%" height="16" /><rect class="storage" width="2.4%" height="16" /><rect class="email" x="2.4%" width="80%" height="16" /></svg>
+    </div>
+  </div>
+  <div class="axis" aria-hidden="true"><span>$0</span><span>$5</span><span>$10</span><span>$15</span><span>$20</span><span>$25</span></div>
+  <div class="legend"><span><i class="key" style="background:var(--chart-1)"></i>R2 storage</span><span><i class="key" style="background:var(--chart-2)"></i>Email</span></div>
+  <p class="note">Storage includes media and backups; held for a full month. Requests stay within R2's free allowances. Examples, not usage forecasts.</p>
+  <p class="note">Rates checked 10 Nov 2026: <a href="https://developers.cloudflare.com/r2/pricing/" target="_blank" rel="noopener noreferrer">Cloudflare R2</a> · <a href="https://resend.com/pricing" target="_blank" rel="noopener noreferrer">Resend</a></p>
+</section>

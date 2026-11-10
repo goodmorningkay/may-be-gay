@@ -1,0 +1,327 @@
+.profile {
+  --background: #f5f1e7;
+  --surface: #fffdf7;
+  --ink: #252923;
+  --muted: #626258;
+  --border: #8e8b7b;
+  --accent: #39523e;
+  --focus: #255ca2;
+  --radius: 6px;
+  box-sizing: border-box;
+  min-block-size: 100vh;
+  min-block-size: 100svh;
+  padding: clamp(1.25rem, 5vw, 4.5rem);
+  color: var(--ink);
+  background: var(--background);
+  font-size: 1rem;
+  line-height: 1.6;
+  color-scheme: light;
+}
+
+.profile *,
+.profile *::before,
+.profile *::after {
+  box-sizing: border-box;
+}
+
+.profile[data-preset="paper"] {
+  --background: #f5f1e7;
+  --surface: #fffdf7;
+  --ink: #252923;
+  --muted: #626258;
+  --border: #8e8b7b;
+  --accent: #39523e;
+  --focus: #255ca2;
+  --radius: 6px;
+}
+
+.profile[data-preset="midnight"] {
+  --background: #171b24;
+  --surface: #232a38;
+  --ink: #f2eee5;
+  --muted: #bac1d0;
+  --border: #6d7a91;
+  --accent: #cad8ff;
+  --focus: #a7c6ff;
+  --radius: 14px;
+  color-scheme: dark;
+}
+
+.profile[data-preset="blush"] {
+  --background: #f7e9eb;
+  --surface: #fff8f7;
+  --ink: #482632;
+  --muted: #79505a;
+  --border: #a37483;
+  --accent: #91425c;
+  --focus: #662a65;
+  --radius: 22px;
+}
+
+.profile[data-preset="forest"] {
+  --background: #e9eee7;
+  --surface: #f7faf3;
+  --ink: #203d2f;
+  --muted: #4b6656;
+  --border: #758d78;
+  --accent: #2f6143;
+  --focus: #205d9b;
+  --radius: 3px;
+}
+
+.profile[data-preset="sunset"] {
+  --background: #f9e4ce;
+  --surface: #fff3e5;
+  --ink: #4c2e25;
+  --muted: #7d4f40;
+  --border: #a87651;
+  --accent: #a34420;
+  --focus: #704017;
+  --radius: 10px;
+}
+
+.profile[data-preset="ocean"] {
+  --background: #e7f0f4;
+  --surface: #f5fbff;
+  --ink: #193c50;
+  --muted: #486475;
+  --border: #6e8e9f;
+  --accent: #1c617f;
+  --focus: #164a9f;
+  --radius: 30px;
+}
+
+.profile[data-font="sans"] {
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.profile[data-font="serif"] {
+  font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+}
+
+.profile[data-font="mono"] {
+  font-family: ui-monospace, "Cascadia Code", "Source Code Pro", Menlo, Consolas, monospace;
+}
+
+.frame {
+  inline-size: 100%;
+  max-inline-size: 40rem;
+  margin-inline: auto;
+}
+
+.content {
+  display: grid;
+  gap: 2.25rem;
+  padding-block: clamp(1rem, 5vh, 3rem) 2.75rem;
+}
+
+.identity {
+  min-inline-size: 0;
+  text-align: center;
+}
+
+.identity::before {
+  display: block;
+  inline-size: 2.5rem;
+  margin: 0 auto 1.5rem;
+  border-block-start: 4px solid var(--accent);
+  content: "";
+}
+
+.address {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.25rem 0.75rem;
+  margin: 0 0 1rem;
+  color: var(--muted);
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+
+.domain {
+  padding-inline-start: 0.75rem;
+  border-inline-start: 1px solid var(--border);
+}
+
+.name {
+  margin: 0;
+  font-size: clamp(2.25rem, 7vw, 3.75rem);
+  font-weight: 650;
+  line-height: 1.12;
+  letter-spacing: -0.035em;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.pronouns {
+  margin: 0.75rem 0 0;
+  color: var(--muted);
+  font-size: 0.9375rem;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.bio {
+  max-inline-size: 52ch;
+  margin: 1.25rem auto 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.navigation {
+  min-inline-size: 0;
+}
+
+.links {
+  display: grid;
+  gap: 0.875rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  min-block-size: 4.75rem;
+  padding: 1rem 1.25rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--ink);
+  background: var(--surface);
+  text-decoration: none;
+  transition: border-color 150ms ease, transform 150ms ease;
+}
+
+.linkText {
+  display: grid;
+  gap: 0.125rem;
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+
+.linkLabel {
+  font-weight: 600;
+  white-space: pre-wrap;
+}
+
+.linkHost {
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+
+.arrow {
+  flex-shrink: 0;
+  color: var(--accent);
+  font-family: system-ui, sans-serif;
+  font-size: 1.5rem;
+}
+
+@media (hover: hover) {
+  .link:hover {
+    transform: translateY(-1px);
+    border-color: var(--accent);
+  }
+
+  .link:hover .linkLabel {
+    text-decoration: underline;
+    text-underline-offset: 0.2em;
+  }
+}
+
+.profile a:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 4px;
+}
+
+.empty {
+  margin: 0;
+  padding-block: 1.25rem;
+  color: var(--muted);
+  text-align: center;
+}
+
+.footer {
+  padding-block: 1.25rem 0.5rem;
+  border-block-start: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.875rem;
+  text-align: center;
+}
+
+.footer a {
+  display: inline-flex;
+  align-items: center;
+  min-block-size: 2.75rem;
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+  overflow-wrap: anywhere;
+}
+
+.attribution {
+  margin: 0;
+}
+
+.support {
+  max-inline-size: 100%;
+  margin-block-start: 0.125rem;
+}
+
+.supportNote {
+  max-inline-size: 46ch;
+  margin: 0.5rem auto 0;
+  font-size: 0.8125rem;
+}
+
+@media (min-width: 48rem) {
+  .profile[data-layout="split"] .frame {
+    max-inline-size: 68rem;
+  }
+
+  .profile[data-layout="split"] .content {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: start;
+    gap: clamp(2rem, 5vw, 5rem);
+  }
+
+  .profile[data-layout="split"] .identity {
+    text-align: start;
+  }
+
+  .profile[data-layout="split"] .identity::before,
+  .profile[data-layout="split"] .bio {
+    margin-inline: 0;
+  }
+
+  .profile[data-layout="split"] .address {
+    justify-content: flex-start;
+  }
+
+  .profile[data-layout="split"] .navigation {
+    padding-block-start: 0.5rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .link {
+    transition: none;
+  }
+
+  .link:hover {
+    transform: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .link {
+    border-color: LinkText;
+  }
+
+  .profile a:focus-visible {
+    outline-color: Highlight;
+  }
+}
