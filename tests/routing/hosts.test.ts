@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { getSiteDomain, isAllowedPath, isValidUsername, reservedUsernames, resolveHost } from "@/domain/hosts";
+import { allowedMethods, getSiteDomain, isAllowedPath, isValidUsername, reservedUsernames, resolveHost } from "@/domain/hosts";
 
 describe("hostname authority", () => {
   it.each([
     ["may-be.gay", { kind: "apex" }],
     ["app.may-be.gay", { kind: "app" }],
+    ["media.may-be.gay", { kind: "media" }],
     ["alex.may-be.gay", { kind: "profile", username: "alex" }],
     ["KAY-123.MAY-BE.GAY:443", { kind: "profile", username: "kay-123" }],
   ])("resolves only explicit production authorities: %s", (host, expected) => {
@@ -30,7 +31,7 @@ describe("hostname authority", () => {
   it("does not use infrastructure labels as profile names", () => {
     for (const name of reservedUsernames) {
       expect(isValidUsername(name)).toBe(false);
-      if (name !== "app") expect(resolveHost(`${name}.may-be.gay`, "may-be.gay")).toEqual({ kind: "invalid" });
+      if (name !== "app" && name !== "media") expect(resolveHost(`${name}.may-be.gay`, "may-be.gay")).toEqual({ kind: "invalid" });
     }
   });
   it("validates the configured zone independently of request values", () => {
@@ -59,11 +60,26 @@ describe("route boundaries", () => {
     expect(isAllowedPath(profile, "/api/health")).toBe(false);
     expect(isAllowedPath(apex, "/api/health")).toBe(false);
   });
-  it("does not expose future auth/editor/media endpoints or encoded path variants", () => {
+  it("keeps private routes off other hosts and rejects unsupported path variants", () => {
     for (const host of ["may-be.gay", "app.may-be.gay", "alex.may-be.gay"]) {
-      for (const path of ["/api/auth/sign-up/email", "/editor", "/preview", "/_next/image", "/%73upport", "/api/health/extra"]) {
+      for (const path of ["/_next/image", "/%73upport", "/api/health/extra", "/api/auth/sign-in/social"]) {
         expect(isAllowedPath(resolveHost(host, "may-be.gay"), path)).toBe(false);
       }
+      for (const path of ["/api/auth/sign-up/email", "/editor", "/preview", "/account/security", "/admin"]) {
+        expect(isAllowedPath(resolveHost(host, "may-be.gay"), path)).toBe(host === "app.may-be.gay");
+      }
     }
+  });
+  it("separates public reports, profile metrics and media from private mutations", () => {
+    const apex = resolveHost("may-be.gay", "may-be.gay"), app = resolveHost("app.may-be.gay", "may-be.gay");
+    const profile = resolveHost("alex.may-be.gay", "may-be.gay"), media = resolveHost("media.may-be.gay", "may-be.gay");
+    expect(allowedMethods(apex, "/api/reports")).toEqual(["POST"]);
+    expect(allowedMethods(profile, "/api/metrics")).toEqual(["POST"]);
+    expect(allowedMethods(app, "/api/profile")).toEqual(["GET", "HEAD", "PUT"]);
+    for (const host of [apex, profile, media]) expect(allowedMethods(host, "/api/profile")).toEqual([]);
+    for (const host of [app, profile, media]) expect(allowedMethods(host, "/api/reports")).toEqual([]);
+    for (const host of [apex, app, media]) expect(allowedMethods(host, "/api/metrics")).toEqual([]);
+    expect(allowedMethods(media, "/media/v1/example")).toEqual(["GET", "HEAD"]);
+    for (const path of ["/", "/robots.txt", "/_next/static/file.js", "/api/media"]) expect(allowedMethods(media, path)).toEqual([]);
   });
 });

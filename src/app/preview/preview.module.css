@@ -1,0 +1,3 @@
+.notice { padding: 1rem; background: #fffdf7; color: #252923; border-bottom: 1px solid #8e8b7b; text-align: center; font-family: system-ui, sans-serif; }
+.notice a { display: inline-block; padding: .5rem; color: #255ca2; }
+.notice a:focus-visible { outline: 3px solid currentColor; outline-offset: 3px; }

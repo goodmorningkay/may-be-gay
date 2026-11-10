@@ -1,6 +1,6 @@
 # may-be.gay implementation plan
 
-Status: implementation started on 10 November 2026. The first foundation milestone and public renderer are implemented; account flows, editing, media, operations and hosting remain subsequent phases. See the [implementation and review record](implementation-review.md) for delivered scope, verification and limitations. Research checked on 10 November 2026.
+Status: phases 1–5 are implemented and locally verified as of 10 November 2026, including accounts, editor, media, operations, workers and recovery. Primary and independent GPT-6 Astra max reviews are complete; all confirmed findings have been fixed and verified. Hosted acceptance, operator policy decisions and launch remain excluded. See the [current review record](non-launch-review.md) and [foundation review](implementation-review.md) for evidence and limitations. Research checked on 10 November 2026.
 
 Build a free profile service where an invited user creates an account, claims `username.may-be.gay`, edits an expressive links page, previews it, and publishes it. Start with a small invite-only beta and open registration after the product and its operating procedures have been exercised.
 

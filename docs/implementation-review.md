@@ -1,5 +1,10 @@
 # First implementation milestone and review
 
+Historical foundation record. The subsequent account/editor/media/operations
+implementation and its ongoing independent review are recorded in
+[non-launch-review.md](non-launch-review.md). The outstanding feature list at the
+end of this document describes the earlier milestone, not the current checkout.
+
 10 November 2026. Three GPT-6.1 Sol agents at xhigh reasoning implemented the
 platform, persistence and renderer workstreams. The primary agent integrated
 the application and personally reviewed the resulting code and configuration,

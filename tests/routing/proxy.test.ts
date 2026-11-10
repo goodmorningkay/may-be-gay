@@ -1,11 +1,16 @@
 import { describe, expect, it, afterEach, beforeEach, vi } from "vitest";
 import { NextRequest } from "next/server";
+import { unstable_doesMiddlewareMatch } from "next/experimental/testing/server";
+import { config } from "@/proxy";
 import { proxy } from "@/proxy";
 import { getPublishedProfile } from "@/server/profiles";
 import { defaultProfileDocument } from "@/domain/profile";
+import { serviceState } from "@/server/service-state";
 
 vi.mock("@/server/profiles", () => ({ getPublishedProfile: vi.fn() }));
+vi.mock("@/server/service-state", () => ({ serviceState: vi.fn() }));
 beforeEach(() => {
+  vi.mocked(serviceState).mockResolvedValue("open");
   vi.mocked(getPublishedProfile).mockResolvedValue({ id: "fixture", username: "alex", revisionId: "revision", document: defaultProfileDocument });
 });
 
@@ -15,6 +20,25 @@ function request(host: string, path = "/", headers: Record<string, string> = {},
 afterEach(() => vi.unstubAllEnvs());
 
 describe("request boundary and security headers", () => {
+  it("excludes only the raw collection path from Next body cloning", () => {
+    for (const path of ["/api/media", "/api/media?kind=image", "/api/media/"]) {
+      expect(unstable_doesMiddlewareMatch({config, url:`https://app.may-be.gay${path}`})).toBe(false);
+    }
+    for (const path of ["/api/media/id", "/api/media/id/content", "/api/medial", "/api/%6dedia", "/api/media%2f", "/api/media.json", "/API/media"]) {
+      expect(unstable_doesMiddlewareMatch({config, url:`https://app.may-be.gay${path}`})).toBe(true);
+    }
+  });
+
+  it.each(["closed", "unavailable"] as const)("blocks HTML, RSC, media and mutations while service is %s", async state => {
+    vi.stubEnv("SITE_DOMAIN", "may-be.gay");
+    vi.mocked(serviceState).mockResolvedValue(state);
+    for (const [host, path, method] of [["alex.may-be.gay", "/?_rsc=fixture", "GET"], ["app.may-be.gay", "/api/profile", "PUT"], ["media.may-be.gay", "/media/v1/file", "GET"], ["may-be.gay", "/", "GET"]]) {
+      const result = await proxy(request(host, path, { rsc: "1" }, method));
+      expect(result.status).toBe(503);
+      expect(result.headers.get("cache-control")).toContain("no-store");
+      expect(result.headers.get("retry-after")).toBe("60");
+    }
+  });
   it("ignores forwarded authority and overwrites caller-supplied nonce/CSP", async () => {
     vi.stubEnv("SITE_DOMAIN", "may-be.gay");
     const result = await proxy(request("alex.may-be.gay", "/", {
@@ -78,5 +102,18 @@ describe("request boundary and security headers", () => {
     expect(result.status).toBe(503);
     expect(await result.text()).not.toContain("PRIVATE");
     expect(result.headers.get("cache-control")).toContain("no-store");
+  });
+  it("admits only each implemented mutation method and host", async () => {
+    vi.stubEnv("SITE_DOMAIN", "may-be.gay");
+    expect((await proxy(request("app.may-be.gay", "/api/profile", {}, "PUT"))).status).toBe(200);
+    expect((await proxy(request("app.may-be.gay", "/api/profile", {}, "POST"))).status).toBe(405);
+    expect((await proxy(request("alex.may-be.gay", "/api/profile", {}, "PUT"))).status).toBe(404);
+    expect((await proxy(request("may-be.gay", "/api/reports", {}, "POST"))).status).toBe(200);
+    expect((await proxy(request("app.may-be.gay", "/api/reports", {}, "POST"))).status).toBe(404);
+    expect((await proxy(request("alex.may-be.gay", "/api/metrics", {}, "POST"))).status).toBe(200);
+    const app = await proxy(request("app.may-be.gay", "/editor"));
+    expect(app.headers.get("content-security-policy")).toContain("media-src 'self' https://media.may-be.gay");
+    expect(app.headers.get("content-security-policy")).toContain("frame-src 'self'");
+    expect(app.headers.get("x-robots-tag")).toBe("noindex, nofollow");
   });
 });

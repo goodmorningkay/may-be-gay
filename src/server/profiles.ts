@@ -1,6 +1,8 @@
 import "server-only";
 import { and, eq, isNull } from "drizzle-orm";
-import { getPublicDocument, type ProfileDocument } from "@/domain/profile";
+import { getProfileAssetIds, getPublicDocument, type ProfileDocument } from "@/domain/profile";
+import type { PublicMediaMap } from "@/domain/media";
+import { getPublicMedia } from "@/server/media/service";
 import { isValidUsername } from "@/domain/hosts";
 import { getDatabase } from "@/server/db";
 import { profiles, profileRevisions, user, usernameClaims } from "@/server/db/schema";
@@ -10,6 +12,7 @@ export type PublishedProfile = {
   username: string;
   revisionId: string;
   document: ProfileDocument;
+  media?: PublicMediaMap;
 };
 
 /** Public only: no session access, draft joins, wildcard projections, or shared cache. */
@@ -45,7 +48,9 @@ export async function getPublishedProfile(username: string): Promise<PublishedPr
 
   if (!published) return null;
   try {
-    return { ...published, document: getPublicDocument(published.document) };
+    const document = getPublicDocument(published.document);
+    const ids = getProfileAssetIds(document);
+    return { ...published, document, ...(ids.length ? { media: await getPublicMedia(ids) } : {}) };
   } catch {
     // Malformed/unsupported stored snapshots must never reach a public renderer.
     return null;

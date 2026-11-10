@@ -1,0 +1,99 @@
+# Disposable only. No host ports, host DNS edits, external mail or live storage.
+services:
+  db:
+    image: postgres:17.11-bookworm@sha256:665dc7b37ac52a17e298511414c21d23ffa4e6a6ef6225b3e5d59c7afb35e994
+    environment:
+      POSTGRES_DB: browser_acceptance_test
+      POSTGRES_PASSWORD: local-only-e2e-postgres
+      MIGRATION_DATABASE_PASSWORD: local-only-e2e-migrator
+      APP_DATABASE_PASSWORD: local-only-e2e-app
+    volumes:
+      - database:/var/lib/postgresql/data
+      - ../../../infra/postgres/bootstrap.sh:/docker-entrypoint-initdb.d/10-bootstrap.sh:ro
+      - ../../../infra/postgres/bootstrap.sql:/opt/may-be-gay/bootstrap.sql:ro
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U postgres -d browser_acceptance_test']
+      interval: 1s
+      timeout: 3s
+      retries: 40
+    networks: [private]
+  app:
+    image: ${E2E_IMAGE}
+    build:
+      context: ../../..
+      dockerfile: infra/testing/e2e/Dockerfile
+    working_dir: /work
+    command: [node, .next/standalone/server.js]
+    environment: &environment
+      SITE_DOMAIN: may-be.localhost
+      DATABASE_URL: postgres://may_be_app:local-only-e2e-app@db:5432/browser_acceptance_test
+      MIGRATION_DATABASE_URL: postgres://may_be_migrator:local-only-e2e-migrator@db:5432/browser_acceptance_test
+      BETTER_AUTH_SECRET: local-only-e2e-auth-secret-never-for-real-use
+      MAIL_TRANSPORT: local
+      MAIL_ALLOW_LIVE: 'false'
+      MAIL_OUTBOX_DIR: /private/mail
+      MEDIA_STORAGE: local
+      MEDIA_LOCAL_ROOT: /private/media
+      SERVICE_CLOSED_FILE: /private/service/SERVICE_CLOSED
+      NATIVE_PARSER_LOCK_FILE: /private/native/parser.lock
+      NEXT_TELEMETRY_DISABLED: '1'
+      HOSTNAME: 0.0.0.0
+      E2E_FIXTURE: isolated-browser-acceptance
+    volumes: &volumes
+      - ../../..:/work
+      - mail:/private/mail
+      - media:/private/media
+      - service:/private/service
+      - native:/private/native
+    networks: [private]
+    healthcheck:
+      test: [CMD, node, -e, "require('http').get({host:'127.0.0.1',port:3000,path:'/',headers:{host:'may-be.localhost'}},r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 1s
+      timeout: 3s
+      retries: 60
+  caddy:
+    image: caddy:2.11.9-alpine@sha256:0bbb055bda6793c999bde78b1b5ce3e89f829fb031af2cf50056ea1246559fee
+    environment:
+      SITE_DOMAIN: may-be.localhost
+    volumes:
+      - ../../../infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ca:/data
+      - config:/config
+    networks: [private]
+    extra_hosts:
+      - app.may-be.localhost:127.0.0.1
+      - may-be.localhost:127.0.0.1
+      - media.may-be.localhost:127.0.0.1
+      - chromium-a.may-be.localhost:127.0.0.1
+      - chromium-b.may-be.localhost:127.0.0.1
+      - firefox-a.may-be.localhost:127.0.0.1
+      - firefox-b.may-be.localhost:127.0.0.1
+      - webkit-a.may-be.localhost:127.0.0.1
+      - webkit-b.may-be.localhost:127.0.0.1
+      - mobile-a.may-be.localhost:127.0.0.1
+      - mobile-b.may-be.localhost:127.0.0.1
+      - lifecycle-a.may-be.localhost:127.0.0.1
+      - lifecycle-b.may-be.localhost:127.0.0.1
+      - unknown.may-be.localhost:127.0.0.1
+  browser:
+    image: ${E2E_IMAGE}
+    working_dir: /work
+    init: true
+    entrypoint: [bash, infra/testing/e2e/browser.sh]
+    shm_size: 1gb
+    # *.localhost resolves to loopback in browsers. Share the proxy's loopback.
+    network_mode: service:caddy
+    environment: *environment
+    volumes: *volumes
+    command: [node, node_modules/@playwright/test/cli.js, test]
+networks:
+  private:
+    internal: true
+volumes:
+  database:
+  mail:
+  media:
+  service:
+  native:
+  ca:
+  config:

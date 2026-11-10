@@ -107,12 +107,14 @@ export const profiles = pgTable("profiles", {
   id: uuid("id").defaultRandom().primaryKey(),
   ownerId: text("owner_id").notNull().unique().references(() => user.id, { onDelete: "cascade" }),
   currentRevisionId: uuid("current_revision_id"),
+  publicationNumber: integer("publication_number").notNull().default(0),
   suspendedAt: time("suspended_at"),
   deletedAt: time("deleted_at"),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 }, (t): PgTableExtraConfigValue[] => [
   unique("profiles_id_owner_unique").on(t.id, t.ownerId),
+  check("profiles_publication_number_check", sql`${t.publicationNumber} BETWEEN 0 AND 2147483647`),
   foreignKey({ name: "profiles_current_revision_fk", columns: [t.id, t.currentRevisionId], foreignColumns: [profileRevisions.profileId, profileRevisions.id] }),
 ]);
 

@@ -1,4 +1,4 @@
-name: Foundation checks
+name: Application checks
 
 on:
   push:
@@ -10,7 +10,7 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     services:
       postgres:
         image: postgres:17.11-bookworm@sha256:665dc7b37ac52a17e298511414c21d23ffa4e6a6ef6225b3e5d59c7afb35e994
@@ -32,6 +32,12 @@ jobs:
       MIGRATION_DATABASE_URL: postgres://may_be_migrator:ci-only-migrator@127.0.0.1:5432/may_be_gay
       TEST_DATABASE_URL: postgres://may_be_migrator:ci-only-migrator@127.0.0.1:5432/may_be_gay_test
       TEST_APP_DATABASE_URL: postgres://may_be_app:ci-only-app@127.0.0.1:5432/may_be_gay_test
+      ACCOUNTS_TEST_DATABASE_URL: postgres://may_be_migrator:ci-only-migrator@127.0.0.1:5432/accounts_test
+      TEST_PROFILE_DATABASE_URL: postgres://may_be_migrator:ci-only-migrator@127.0.0.1:5432/profiles_test
+      TEST_PROFILE_APP_DATABASE_URL: postgres://may_be_app:ci-only-app@127.0.0.1:5432/profiles_test
+      TEST_MEDIA_DATABASE_URL: postgres://may_be_migrator:ci-only-migrator@127.0.0.1:5432/media_test
+      OPERATIONS_TEST_DATABASE_URL: postgres://may_be_migrator:ci-only-migrator@127.0.0.1:5432/operations_test
+      BETTER_AUTH_SECRET: ci-only-authentication-secret-for-local-fixtures
       MIGRATION_DATABASE_PASSWORD: ci-only-migrator
       APP_DATABASE_PASSWORD: ci-only-app
     steps:
@@ -42,11 +48,15 @@ jobs:
           cache: npm
       - name: Install locked dependencies
         run: npm ci --no-fund --no-audit
+      - name: Install bounded media parser tools
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg util-linux gcc libc6-dev
       - name: Bootstrap separate database roles
         run: |
           docker exec -i -e MIGRATION_DATABASE_PASSWORD -e APP_DATABASE_PASSWORD "${{ job.services.postgres.id }}" psql -X -U postgres -d may_be_gay -v ON_ERROR_STOP=1 < infra/postgres/bootstrap.sql
-          docker exec "${{ job.services.postgres.id }}" psql -X -U postgres -d may_be_gay -v ON_ERROR_STOP=1 -c 'CREATE DATABASE may_be_gay_test OWNER may_be_migrator'
-          docker exec -i -e MIGRATION_DATABASE_PASSWORD -e APP_DATABASE_PASSWORD "${{ job.services.postgres.id }}" psql -X -U postgres -d may_be_gay_test -v ON_ERROR_STOP=1 < infra/postgres/bootstrap.sql
+          for database in may_be_gay_test accounts_test profiles_test media_test operations_test; do
+            docker exec "${{ job.services.postgres.id }}" psql -X -U postgres -d may_be_gay -v ON_ERROR_STOP=1 -c "CREATE DATABASE $database OWNER may_be_migrator"
+            docker exec -i -e MIGRATION_DATABASE_PASSWORD -e APP_DATABASE_PASSWORD "${{ job.services.postgres.id }}" psql -X -U postgres -d "$database" -v ON_ERROR_STOP=1 < infra/postgres/bootstrap.sql
+          done
       - name: Migrate an empty database, then check rerun
         run: |
           npm run db:migrate
@@ -67,3 +77,64 @@ jobs:
           docker compose config --quiet
           docker compose -f compose.yaml -f compose.dev.yaml config --quiet
           docker compose -f compose.yaml -f compose.tools.yaml config --quiet
+
+  recovery:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      WORKER_TEST_DATABASE_URL: postgres://recovery_source:source_local_dummy@127.0.0.1:55439/worker_test
+      RECOVERY_TEST_DATABASE_URL: postgres://recovery_source:source_local_dummy@127.0.0.1:55439/recovery_test
+      RECOVERY_READONLY_DATABASE_URL: postgres://recovery_backup:backup_local_dummy@127.0.0.1:55439/recovery_test
+      RESTORE_TEST_DATABASE_URL: postgres://recovery_target:target_local_dummy@127.0.0.1:55439/restore_test
+      RECOVERY_CRASH_DATABASE_URL: postgres://recovery_target:target_local_dummy@127.0.0.1:55439/crash_test
+      RECOVERY_RUNTIME_DATABASE_URL: postgres://recovery_runtime:runtime_local_dummy@127.0.0.1:55439/restore_test
+      RECOVERY_TEST_WORK_ROOT: /tmp/may-be-recovery-review
+      PG_DUMP_BIN: ${{ github.workspace }}/infra/operations/recovery-review-pg-dump.sh
+      PG_RESTORE_BIN: ${{ github.workspace }}/infra/operations/recovery-review-pg-restore.sh
+      RECOVERY_ACCEPTANCE_REPORT: /tmp/may-be-recovery-review/acceptance.json
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+          cache: npm
+      - run: npm ci --no-fund --no-audit
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg util-linux gcc libc6-dev
+      - run: npm run native:build
+      - name: Start isolated PostgreSQL 17 recovery fixture
+        run: |
+          install -d -m 700 /tmp/may-be-recovery-review
+          docker compose -p may-be-recovery-review-20261110 -f infra/operations/recovery-review.compose.yml up -d --wait
+      - name: Verify fenced jobs and encrypted full restore
+        run: npx vitest run tests/worker tests/recovery
+      - name: Verify worker runtime packaging
+        run: |
+          docker build --target worker -t may-be-gay-worker:ci .
+          docker run --rm --network none may-be-gay-worker:ci pg_dump --version
+          docker run --rm --network none may-be-gay-worker:ci pg_restore --version
+          docker run --rm --network none may-be-gay-worker:ci node -e 'if (process.getuid() === 0) process.exit(1); require("sharp"); require("node:child_process").execFileSync("prlimit", ["--version"]); require("node:child_process").execFileSync("ffmpeg", ["-version"]);'
+          docker run --rm --network none -e NATIVE_PARSER_LOCK_FILE=/app/var/native/parser.lock may-be-gay-worker:ci node --conditions=react-server --import tsx -e 'const sharp = require("sharp"); const { validateMedia } = require("./src/server/media/validation.ts"); (async () => { const bytes = await sharp({create:{width:2,height:2,channels:3,background:"red"}}).png().toBuffer(); const result = await validateMedia(bytes,"image"); if (result.width !== 2) process.exit(1); })();'
+      - name: Verify development media ownership across app and worker
+        run: |
+          docker compose -p may-be-dev-media-ci -f compose.yaml -f compose.dev.yaml -f infra/testing/dev-media.compose.yaml up --build -d --wait app worker
+          docker compose -p may-be-dev-media-ci -f compose.yaml -f compose.dev.yaml -f infra/testing/dev-media.compose.yaml run --rm --no-deps worker node --conditions=react-server --import tsx scripts/dev-media-smoke.ts
+      - name: Remove isolated fixtures
+        if: always()
+        run: |
+          docker compose -p may-be-dev-media-ci -f compose.yaml -f compose.dev.yaml -f infra/testing/dev-media.compose.yaml down -v
+          docker compose -p may-be-recovery-review-20261110 -f infra/operations/recovery-review.compose.yml down -v
+
+  browsers:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+          cache: npm
+      - run: npm ci --no-fund --no-audit
+      - name: Exercise Chromium, Firefox, WebKit and mobile over isolated HTTPS
+        run: npm run test:e2e

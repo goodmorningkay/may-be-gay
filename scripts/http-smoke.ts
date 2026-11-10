@@ -5,12 +5,17 @@ import { once } from "node:events";
 import { request } from "node:http";
 import { request as secureRequest } from "node:https";
 import { readFileSync } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { createServer } from "node:net";
 import { fileURLToPath } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
 import { eq } from "drizzle-orm";
+import { hashPassword } from "better-auth/crypto";
 import { defaultProfileDocument } from "../src/domain/profile";
 import * as tables from "../src/server/db/schema";
+import { recoveryStatus } from "../src/server/db/schema-worker";
 import { bootstrapTestDatabase } from "../tests/db/harness";
 
 // Explicit disposable DB only. Run after `npm run build`, separately from Vitest.
@@ -27,6 +32,7 @@ assert(migrationTarget.host === runtimeTarget.host && migrationTarget.pathname =
 
 async function main() {
   const database = await bootstrapTestDatabase(testUrl!);
+  const serviceRoot = await mkdtemp(path.join(os.tmpdir(), "may-be-http-gate-"));
   let server: ReturnType<typeof spawn> | undefined;
   let stopped: Promise<unknown> | undefined;
   let checks = 0;
@@ -61,16 +67,18 @@ async function main() {
     if (!httpsPort) {
       server = spawn(process.execPath, ["node_modules/next/dist/bin/next", "start", "--hostname", "127.0.0.1", "--port", String(port)], {
       cwd: fileURLToPath(new URL("..", import.meta.url)),
-      env: { PATH: process.env.PATH, NODE_ENV: "production", NEXT_TELEMETRY_DISABLED: "1", SITE_DOMAIN: "may-be.localhost", DATABASE_URL: appUrl },
+      env: { PATH: process.env.PATH, NODE_ENV: "production", NEXT_TELEMETRY_DISABLED: "1", SITE_DOMAIN: "may-be.localhost", DATABASE_URL: appUrl,
+        SERVICE_CLOSED_FILE: path.join(serviceRoot, "SERVICE_CLOSED"),
+        BETTER_AUTH_SECRET: "local-http-acceptance-secret-with-at-least-32-characters" },
       stdio: ["ignore", "ignore", "pipe"],
       });
       stopped = once(server, "exit");
     }
     // Errors stay local and bounded. No raw DB exceptions enter successful output.
     let serverErrors = "";
-    server?.stderr?.on("data", chunk => { serverErrors = (serverErrors + String(chunk)).slice(-4000); });
+    server?.stderr?.on("data", chunk => { serverErrors = (serverErrors + String(chunk)).slice(-64_000); });
 
-    function fetchPage(host: string, path = "/", extra: Record<string, string> = {}, method = "GET") {
+    function fetchPage(host: string, path = "/", extra: Record<string, string> = {}, method = "GET", payload?: string) {
       return new Promise<{ status: number; headers: import("node:http").IncomingHttpHeaders; body: string }>((resolve, reject) => {
         const send = httpsPort ? secureRequest : request;
         const req = send({ hostname: "127.0.0.1", port, path, method, headers: { host, ...extra },
@@ -84,7 +92,7 @@ async function main() {
         });
         req.on("error", reject);
         req.setTimeout(5000, () => req.destroy(new Error("HTTP check timed out")));
-        req.end();
+        req.end(payload);
       });
     }
     const deadline = Date.now() + 20_000;
@@ -114,10 +122,16 @@ async function main() {
       return result;
     }
     assert.match((await check("may-be.localhost", "/", 200)).body, /All your places/);
-    assert.match((await check("app.may-be.localhost", "/", 200)).body, /Account creation and the editor/);
+    assert.equal((await check("app.may-be.localhost", "/", 307)).headers.location, "/editor");
+    await check("app.may-be.localhost", "/sign-in", 200);
+    await check("app.may-be.localhost", "/api/profile", 401);
+    await check("app.may-be.localhost", "/api/profile", 403, { origin: "https://alice-http.may-be.localhost" }, "PUT");
     await check("may-be.localhost", "/examples?preset=midnight&layout=split&font=mono", 200);
     await check("may-be.localhost", "/examples?preset=javascript", 404);
     await check("may-be.localhost", "/support", 200);
+    await check("may-be.localhost", "/privacy", 200);
+    await check("may-be.localhost", "/terms", 200);
+    await check("may-be.localhost", "/rules", 200);
     await check("app.may-be.localhost", "/api/health", 200);
     for (const host of ["unknown-http.may-be.localhost", "nested.alice-http.may-be.localhost", "media.may-be.localhost", "evil.invalid"]) await check(host, "/", 404);
     await check("unknown-http.may-be.localhost", "/robots.txt", 404);
@@ -155,11 +169,51 @@ async function main() {
       }
     }
     await check("unknown-http.may-be.localhost", "/?_rsc=fixture", 404, { rsc: "1" });
+    if (server) {
+      // Exercise the actual production SSR logger, using a disposable account
+      // and a role-level failure that leaves the maintenance gate operational.
+      const password = "local-http-smoke-password-only";
+      await database.db.insert(tables.account).values({ id: randomUUID(), accountId: alice.id, providerId: "credential", userId: alice.id, password: await hashPassword(password) });
+      const payload = JSON.stringify({ email: `${alice.id}@private.invalid`, password });
+      const signedIn = await fetchPage("app.may-be.localhost", "/api/auth/sign-in/email", {
+        origin: "https://app.may-be.localhost", "content-type": "application/json", "content-length": String(Buffer.byteLength(payload)),
+      }, "POST", payload);
+      assert.equal(signedIn.status, 200, "SSR log fixture sign-in must succeed");
+      const cookies = (signedIn.headers["set-cookie"] ?? []).map(value => value.split(";", 1)[0]).join("; ");
+      assert(cookies, "SSR log fixture needs a real session cookie");
+      const [storedSession] = await database.db.select({ token: tables.session.token }).from(tables.session).where(eq(tables.session.userId, alice.id));
+      assert(storedSession?.token);
+      assert.equal((await fetchPage("app.may-be.localhost", "/account/security", { cookie: cookies })).status, 200);
+      serverErrors = "";
+      const runtimeRole = decodeURIComponent(runtimeTarget.username);
+      try {
+        await database.client`REVOKE SELECT ON TABLE public.session FROM ${database.client(runtimeRole)}`;
+        const failed = await fetchPage("app.may-be.localhost", "/account/security", { cookie: cookies });
+        assert.equal(failed.status, 500, "Injected session failure must reach the production SSR error boundary");
+        await delay(50);
+        assert.match(serverErrors, /AUTH_UNAVAILABLE/, "The SSR logger must record the safe application error");
+        for (const sensitive of [storedSession.token, cookies, "Failed query:", "params:", "permission denied for table session"]) {
+          assert(!serverErrors.includes(sensitive) && !failed.body.includes(sensitive), "SSR failure exposed authentication or SQL details");
+        }
+      } finally {
+        await database.client`GRANT SELECT ON TABLE public.session TO ${database.client(runtimeRole)}`;
+      }
+      assert.equal((await fetchPage("app.may-be.localhost", "/account/security", { cookie: cookies })).status, 200);
+      checks += 4;
+    }
     await database.db.update(tables.profiles).set({ currentRevisionId: null }).where(eq(tables.profiles.id, alice.profile.id));
     await check("alice-http.may-be.localhost", "/", 404);
     await database.db.update(tables.user).set({ suspendedAt: new Date() }).where(eq(tables.user.id, bob.id));
     await check("bob-http.may-be.localhost", "/", 404);
-    console.log(`Production ${httpsPort ? "HTTPS through Caddy" : "HTTP"} smoke passed: ${checks} requests; HTML/RSC isolation, CSP nonces, real 404s, no-store, unpublish and suspension.`);
+    await database.db.insert(recoveryStatus).values({ id: "restore", state: "validated" });
+    try {
+      await check("may-be.localhost", "/", 503);
+      await check("app.may-be.localhost", "/api/health", 503);
+      await check("app.may-be.localhost", "/api/profile", 503, { origin: "https://app.may-be.localhost" }, "PUT");
+      await check("bob-http.may-be.localhost", "/?_rsc=fixture", 503, { rsc: "1" });
+    } finally { await database.db.delete(recoveryStatus).where(eq(recoveryStatus.id, "restore")); }
+    await check("app.may-be.localhost", "/api/health", 200);
+    console.log(`Production ${httpsPort ? "HTTPS through Caddy" : "HTTP"} smoke passed: ${checks} requests; HTML/RSC isolation, CSP nonces, real 404s, no-store, unpublish, suspension and restore gate${server ? ", plus production SSR log redaction" : ""}.`);
   } finally {
     if (server && server.exitCode === null) {
       server.kill("SIGTERM");
@@ -169,6 +223,7 @@ async function main() {
       clearTimeout(kill);
     }
     await database.close();
+    await rm(serviceRoot, { recursive: true, force: true });
   }
 }
 

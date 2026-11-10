@@ -10,6 +10,7 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    env: { NATIVE_GUARDIAN_BIN: process.env.NATIVE_GUARDIAN_BIN || fileURLToPath(new URL("./.native/may-be-guardian", import.meta.url)) },
     include: ["src/**/*.test.{ts,tsx}", "tests/**/*.test.{ts,tsx}"],
     clearMocks: true,
     restoreMocks: true,

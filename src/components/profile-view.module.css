@@ -325,3 +325,27 @@
     outline-color: Highlight;
   }
 }
+
+/* Additive controls: absent optional v1 fields retain their original appearance. */
+.profile { position: relative; isolation: isolate; background-image: var(--page-gradient, none); }
+.background { position: absolute; inset: 0; z-index: -2; inline-size: 100%; block-size: 100%; object-fit: cover; pointer-events: none; }
+.profile[data-overlay="light"]::after, .profile[data-overlay="dark"]::after { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none; }
+.profile[data-overlay="light"]::after { background: rgb(255 255 255 / 75%); }
+.profile[data-overlay="dark"]::after { background: rgb(0 0 0 / 75%); }
+.avatar { display: block; inline-size: 8rem; block-size: 8rem; margin: 0 auto 1.25rem; object-fit: cover; border-radius: 50%; border: 2px solid var(--border); }
+.contact { margin-block: 1rem 0; overflow-wrap: anywhere; }
+.contact a { display: inline-flex; align-items: center; min-block-size: 44px; color: var(--accent); }
+.socialIcon { display: grid; place-content: center; flex: 0 0 2rem; inline-size: 2rem; block-size: 2rem; border: 1px solid currentColor; border-radius: 50%; color: var(--accent); font: 600 .75rem system-ui, sans-serif; }
+.linkText { flex: 1; }
+.profile[data-button="square"] { --radius: 0px; }
+.profile[data-button="rounded"] { --radius: 12px; }
+.profile[data-button="pill"] { --radius: 36px; }
+.profile[data-spacing="compact"] .content { gap: 1.25rem; }
+.profile[data-spacing="compact"] .links { gap: .5rem; }
+.profile[data-spacing="compact"] .link { min-block-size: 3.5rem; padding-block: .625rem; }
+.profile[data-spacing="airy"] .content { gap: 3rem; }
+.profile[data-spacing="airy"] .links { gap: 1.5rem; }
+.profile[data-spacing="airy"] .link { padding-block: 1.5rem; }
+@media (min-width: 48rem) { .profile[data-layout="split"] .avatar { margin-inline: 0; } }
+@media (prefers-contrast: more) { .profile { --muted: var(--ink); --border: var(--ink); } .link { border-width: 2px; } }
+@media (forced-colors: active) { .background { display: none; } .profile::after { display: none; } .profile { background-image: none; } }

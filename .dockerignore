@@ -1,5 +1,6 @@
 .git
 node_modules
+.native
 .next
 out
 coverage
@@ -9,6 +10,9 @@ coverage
 .env*
 !.env.example
 .local
+var
+playwright-report
+test-results
 **/*.pem
 **/*.key
 docs

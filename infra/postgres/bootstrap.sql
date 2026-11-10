@@ -36,3 +36,14 @@ ALTER DEFAULT PRIVILEGES FOR ROLE may_be_migrator IN SCHEMA public
   GRANT USAGE, SELECT ON SEQUENCES TO may_be_app;
 ALTER DEFAULT PRIVILEGES FOR ROLE may_be_migrator
   REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+
+-- Re-running bootstrap must preserve feature-specific privilege restrictions.
+DO $$ BEGIN
+  IF to_regclass('public.recovery_events') IS NOT NULL THEN
+    REVOKE ALL ON public.recovery_events FROM may_be_app;
+    GRANT SELECT, INSERT ON public.recovery_events TO may_be_app;
+    REVOKE ALL ON public.recovery_replay FROM may_be_app;
+    REVOKE ALL ON SEQUENCE public.recovery_events_sequence_seq FROM may_be_app;
+    GRANT USAGE, SELECT ON SEQUENCE public.recovery_events_sequence_seq TO may_be_app;
+  END IF;
+END $$;

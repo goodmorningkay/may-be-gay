@@ -1,0 +1,7 @@
+.account { max-width: 40rem; margin: 3rem auto; padding: 1.5rem; }
+.account form { display: grid; gap: 1rem; margin-block: 1.5rem; }
+.account label { display: grid; gap: .4rem; }
+.account input, .account button { font: inherit; border: 1px solid currentColor; border-radius: .35rem; padding: .65rem .8rem; }
+.account button { cursor: pointer; }
+.account button:disabled { opacity: .6; cursor: wait; }
+.account :focus-visible { outline: 3px solid #487c85; outline-offset: 3px; }

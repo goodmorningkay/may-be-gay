@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "state": "validated",
+  "reopeningRequiresOperator": true,
+  "durationMs": 42851,
+  "snapshot": "snapshot-1794330293641-646e4761-0f30-4366-872f-566805bc3297",
+  "journal": "journal-1794330295258-ffda4bba-05b7-4cbd-94ea-6c9c83c749ac",
+  "replayedSequence": 5,
+  "restoredPrivateFiles": 8,
+  "completedAt": "2026-11-10T17:05:38.166Z",
+  "fixtureOnly": true,
+  "postgresMajor": 17,
+  "assets": 4,
+  "incompleteUploadExpired": true,
+  "bytesPerObject": 68,
+  "snapshotDurationMs": 1583,
+  "postSnapshotActions": [
+    "delete-account",
+    "account-suspension",
+    "remove-media"
+  ],
+  "hostedAcceptance": false
+}

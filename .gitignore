@@ -9,5 +9,8 @@ coverage/
 !.env.example
 .DS_Store
 .local/
+.native/
+playwright-report/
+test-results/
 *.pem
 *.key

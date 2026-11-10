@@ -2,10 +2,12 @@ import { cache } from "react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { headers } from "next/headers";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { ProfileView } from "@/components/profile-view";
 import { getSiteDomain, resolveHost } from "@/domain/hosts";
 import { getPublishedProfile } from "@/server/profiles";
+import { PublicAnalytics } from "@/components/operations/public-analytics";
+import { reportUrl } from "@/domain/operations";
 import styles from "./site.module.css";
 
 export const dynamic = "force-dynamic";
@@ -15,7 +17,7 @@ export const dynamic = "force-dynamic";
 const readPage = cache(async () => {
   const domain = getSiteDomain();
   const host = resolveHost((await headers()).get("host"), domain);
-  if (host.kind === "invalid") notFound();
+  if (host.kind === "invalid" || host.kind === "media") notFound();
   const profile = host.kind === "profile" ? await getPublishedProfile(host.username) : null;
   if (host.kind === "profile" && !profile) notFound();
   return { domain, host, profile };
@@ -23,7 +25,7 @@ const readPage = cache(async () => {
 
 export async function generateMetadata(): Promise<Metadata> {
   const { domain, host, profile } = await readPage();
-  if (!profile) return { title: host.kind === "app" ? "Your space is taking shape" : "A little space to be yourself" };
+  if (!profile) return { title: host.kind === "app" ? "Your editor" : "A little space to be yourself" };
   const title = profile.document.pageTitle || profile.document.displayName;
   const description = profile.document.pageDescription || profile.document.bio;
   const url = `https://${profile.username}.${domain}`;
@@ -37,18 +39,11 @@ export async function generateMetadata(): Promise<Metadata> {
 
 export default async function Home() {
   const { domain, host, profile } = await readPage();
-  if (profile) return <ProfileView document={profile.document} username={profile.username} siteDomain={domain} />;
-  if (host.kind === "app") return (
-    <main className={styles.page}>
-      <a className={styles.wordmark} href={`https://${domain}`}>may-be.gay</a>
-      <div className={styles.intro}>
-        <p className={styles.eyebrow}>A space in the making</p>
-        <h1>Your page starts here.<br />Soon.</h1>
-        <p>We’re getting ready for a small, invite-only beta. Account creation and the editor aren’t open yet.</p>
-        <a className={styles.button} href={`https://${domain}/examples`}>Explore a sample page <span aria-hidden="true">↗</span></a>
-      </div>
-    </main>
-  );
+  if (profile) return <>
+    <ProfileView document={profile.document} username={profile.username} siteDomain={domain} media={profile.media} supportHref={reportUrl(profile.username, {}, domain)} />
+    <PublicAnalytics username={profile.username} domain={domain} />
+  </>;
+  if (host.kind === "app") redirect("/editor");
   return (
     <main className={styles.page}>
       <header className={styles.header}>
@@ -71,10 +66,10 @@ export default async function Home() {
       </div>
       <section className={styles.details} aria-label="What we're making">
         <div><h2>Make yourself at home</h2><p>Six starting looks, two layouts, and space to share what matters to you.</p></div>
-        <div><h2>Your pace, your page</h2><p>The editor will let you keep a private draft and choose when to publish.</p></div>
+        <div><h2>Your pace, your page</h2><p>Keep a private draft and choose when to publish.</p></div>
         <div><h2>A small beginning</h2><p>We’re building towards a free service, starting with a small invited group.</p></div>
       </section>
-      <footer className={styles.footer}><span>may-be.gay</span><a href={`https://app.${domain}`}>About the upcoming beta <span aria-hidden="true">↗</span></a></footer>
+      <footer className={styles.footer}><span>may-be.gay</span><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/rules">Community rules</a><a href={`https://app.${domain}`}>Open your editor <span aria-hidden="true">↗</span></a></footer>
     </main>
   );
 }

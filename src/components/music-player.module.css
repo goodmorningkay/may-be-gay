@@ -1,0 +1,12 @@
+.player { margin-block-start: 1.5rem; padding: 1rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--ink); text-align: start; }
+.title { margin: 0 0 .5rem; font-weight: 600; }
+.player audio { display: block; inline-size: 100%; min-inline-size: 0; }
+.controls { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; margin-block-start: .75rem; }
+.controls[hidden] { display: none; }
+.controls button { min-block-size: 44px; min-inline-size: 64px; border: 1px solid var(--border); border-radius: .375rem; background: var(--surface); color: var(--ink); font: inherit; cursor: pointer; }
+.controls label { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.controls input { min-block-size: 44px; max-inline-size: 100%; accent-color: var(--accent); }
+.controls :is(button, input):focus-visible { outline: 3px solid var(--focus); outline-offset: 4px; }
+.attribution, .status { margin: .5rem 0 0; overflow-wrap: anywhere; white-space: pre-wrap; font-size: .875rem; }
+.status:empty { display: none; }
+@media (forced-colors: active) { .player, .controls button { border-color: ButtonText; } }

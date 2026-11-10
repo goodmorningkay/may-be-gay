@@ -1,10 +1,10 @@
 # Local development
 
-This checkout implements the phase-1 platform foundation. It is not ready for a
-public launch. Better Auth is installed for phase 2; no authentication handler,
-registration endpoint, email service or authentication secret is configured.
-The editor host is a placeholder. User accounts, private editing, publishing,
-uploads, moderation and operational recovery are later work.
+This checkout implements accounts, private editing, publication, media, reports,
+administration, aggregate analytics, export/deletion and operational recovery.
+The default stack is for local development with dummy secrets, private local
+mail and media, and a development certificate authority. Hosted acceptance and
+launch configuration remain separate. See [the current review record](non-launch-review.md).
 
 ## Prerequisites
 
@@ -16,6 +16,9 @@ uploads, moderation and operational recovery are later work.
   and an OS/browser certificate import facility are needed for local HTTPS.
 - A PostgreSQL client is optional; the commands below use the client in the DB
   container. Host-side integration tests optionally use port **5432**.
+- Host-side media/worker tests require Linux, a C compiler/libc headers, FFmpeg
+  and `prlimit` (Debian/Ubuntu packages `gcc`, `libc6-dev`, `ffmpeg`, `util-linux`).
+  Application/worker images include the compiled guardian, parser tools and Tini.
 
 The versioned package manifest and `package-lock.json` belong together. Use
 `npm ci` after checkout. Update dependency pins and the lockfile deliberately.
@@ -33,17 +36,23 @@ docker compose logs migrate app caddy
 ```
 
 The default Compose file builds a standalone production-mode Next server.
+The Caddy configuration enables HTTP/1 full-duplex handling so an upload can be
+rejected before the client finishes sending it. The application still enforces
+authentication, reservation, byte and receive-time limits on the raw stream.
 PostgreSQL initializes a private database and separate roles. The one-shot
 `migrate` service waits for PostgreSQL health, then executes `npm run db:migrate`.
 The app starts only after that service exits successfully; Caddy starts after
-the app's apex HTTP healthcheck succeeds. The migration service remaining
+the app-host `/api/health` check succeeds. The worker dispatches durable jobs;
+the checks service runs operational checks every minute. The migration service remaining
 `Exited (0)` is expected. Startup does not insert demonstration profiles.
 
 Open `https://may-be.localhost` for the landing page and
-`https://app.may-be.localhost` for the editor placeholder. Profile addresses use
+`https://app.may-be.localhost` for sign-in and the editor. Profile addresses use
 `https://<username>.may-be.localhost`; missing/unpublished profiles must return
 404. A fresh database has no published pages. The integration tests own their
-fixtures and verify independent profile hosts; there is no registration flow.
+fixtures and verify independent profile hosts. Registration requires an
+email-bound invitation and verification. Follow [accounts.md](accounts.md) for
+the explicitly enabled local bootstrap CLI and private mail-outbox workflow.
 The fictional renderer demonstration at `https://may-be.localhost/examples`
 works without inserting database content and offers the available looks,
 layouts and system-font choices.
@@ -101,6 +110,9 @@ docker compose -f compose.yaml -f compose.dev.yaml logs -f app
 
 The app mounts `src`, `next.config.ts` and `tsconfig.json` read-only; Next writes
 its cache inside the container. Dependency changes need an image rebuild.
+The development app runs as uid 1000, matching the worker and production app.
+Its image owns the writable Next cache; media and parser-lock volumes stay
+private and shared by that same uid.
 Migrations still run from the migration image. Use the same Compose file flags
 for subsequent operations on that stack.
 
@@ -109,6 +121,11 @@ For a host-side server, `npm run dev` listens on `127.0.0.1:3000`. Set
 explicit Host header), and provide a reachable runtime DB URL as described
 below. Direct HTTP is useful for development but does not exercise local TLS.
 Plain `localhost` is deliberately outside the application's host contract.
+Run `npm run native:build` before host-side media/worker commands and export
+`NATIVE_GUARDIAN_BIN="$PWD/.native/may-be-guardian"`. Production also requires
+an explicit shared `NATIVE_PARSER_LOCK_FILE` and `SERVICE_CLOSED_FILE`. Use the
+same stable lock file and uid for every local parser; never replace its inode
+while services run. Rebuild/restart images after guardian source changes.
 `npm run build` followed by `npm start` runs the host production server; the
 Docker image instead runs standalone `node server.js` as the unprivileged
 `node` user.
@@ -122,13 +139,15 @@ UPDATE and DELETE, plus USAGE/SELECT on sequences. It has no schema creation,
 database creation, role creation, superuser or temporary-table privileges.
 Default privileges apply to objects subsequently created by the migrator. The
 Drizzle migration journal is not in `public` and is not granted to the app.
-These grants are not row-level ownership enforcement: private data access
-checks belong in later application work.
+Private data access independently derives ownership from the authenticated
+session. Recovery events are append-only for the app role, and the replay
+checkpoint is restricted to the recovery operator role.
 
 The `postgres` administrator exists only for cluster bootstrap/maintenance. It
 is never given to the application or migration service. The application
-container receives only `DATABASE_URL`; the migration container receives only
-`MIGRATION_DATABASE_URL`. No secret uses a `NEXT_PUBLIC_` variable.
+container receives the runtime `DATABASE_URL` and application configuration;
+the migration container receives `MIGRATION_DATABASE_URL`. No secret uses a
+`NEXT_PUBLIC_` variable.
 
 | Key | Purpose |
 | --- | --- |
@@ -138,13 +157,19 @@ container receives only `DATABASE_URL`; the migration container receives only
 | `POSTGRES_PASSWORD` | Local cluster administrator password. |
 | `MIGRATION_DATABASE_PASSWORD` | Local bootstrap password for the migration role. Must match its URL. |
 | `APP_DATABASE_PASSWORD` | Local bootstrap password for the runtime role. Must match its URL. |
+| `BETTER_AUTH_SECRET` | Explicit authentication secret; local Compose uses a deliberately dummy value. |
+| `MAIL_TRANSPORT`, `MAIL_OUTBOX_DIR` | Private local mail delivery for development. |
+| `MEDIA_STORAGE`, `MEDIA_LOCAL_ROOT` | Private local media storage for development. |
+| `SERVICE_CLOSED_FILE` | Required in production; share the absolute marker path and volume with app, worker and restore. Its presence keeps the service closed. |
+| `BACKUP_WORK_ROOT` | Explicit persistent private recovery workspace in production; contains retention restart checkpoints. |
 
 The example passwords and Compose fallbacks are **public, local-only values**.
 Production must supply unique secret values through a separate secret delivery
 mechanism. URL-encode password characters in connection URLs. Do not reuse these
 development credentials externally. `.env`, certificate keys and `.local` are
 ignored by Git and excluded from Docker build context. No external credentials
-are generated or required in phase 1.
+are generated or needed for local acceptance. Provider configuration is documented
+in [accounts.md](accounts.md), [media.md](media.md) and [recovery.md](recovery.md).
 
 The official PostgreSQL entrypoint runs `infra/postgres/bootstrap.sh` only when
 the data volume is empty. Its SQL is safe to rerun and reapplies ownership,
@@ -218,7 +243,20 @@ npm run test:http # requires the two disposable test DB URLs below
 docker compose config --quiet
 ```
 
-Run build after the database, renderer and host-routing work is integrated.
+Run build after source changes and before the production HTTP smoke test.
+`npm test` compiles the native guardian first. Before direct `npx vitest` runs,
+run `npm run native:build`; Vitest uses that binary unless explicitly overridden.
+
+The development media regression uses a fresh project and disposable database,
+without publishing any ports. It uploads through the development HTTP app,
+waits for the worker's parser, reads the private derivative and verifies that
+deletion removes stored bytes and releases the reservation:
+
+```sh
+docker compose -p may-be-dev-media-test -f compose.yaml -f compose.dev.yaml -f infra/testing/dev-media.compose.yaml up --build -d --wait app worker
+docker compose -p may-be-dev-media-test -f compose.yaml -f compose.dev.yaml -f infra/testing/dev-media.compose.yaml run --rm --no-deps worker node --conditions=react-server --import tsx scripts/dev-media-smoke.ts
+docker compose -p may-be-dev-media-test -f compose.yaml -f compose.dev.yaml -f infra/testing/dev-media.compose.yaml down --volumes
+```
 Vitest runs in Node with the `@` import alias and a test-only no-op for
 `server-only`; Next still enforces the actual server-only boundary in builds.
 The test include patterns cover `src/**/*.test.{ts,tsx}` and
@@ -226,7 +264,8 @@ The test include patterns cover `src/**/*.test.{ts,tsx}` and
 migrator-owned disposable database whose name ends in `_test`, and
 `TEST_APP_DATABASE_URL` for the same database as the runtime role. The harness
 resets tables and applies migrations; never point it at a database containing
-data you need. Without a test URL these tests skip locally; CI requires one.
+data you need. Without a suite's URL its PostgreSQL tests skip locally; CI supplies
+all the required URLs. Suites that reset their databases must use separate databases.
 For a local test database:
 
 ```sh
@@ -238,13 +277,25 @@ TEST_DATABASE_URL=postgres://may_be_migrator:local-only-migrator@127.0.0.1:5432/
 Start the DB with `compose.tools.yaml` before that host-side test command.
 Creating the test DB is a one-time operation; omit CREATE on reruns.
 
-GitHub Actions installs with `npm ci`, bootstraps the two non-superuser roles
-against an empty pinned PostgreSQL service, applies migrations twice to check
-reruns, verifies runtime CRUD/DDL boundaries, creates a separate disposable test
-DB with the same role grants, then runs typecheck, lint, tests,
-build and the production HTTP smoke test. It also validates standard/development/tooling Compose syntax. This
-is not a browser, real-email, media, backup, restore or deployment acceptance
-test. CI publishes no images and deploys nothing.
+The example above runs the foundation PostgreSQL suite. Create separately named
+migrator-owned databases and apply the same bootstrap grants for the feature suites:
+
+| Environment variable | Separate disposable database |
+| --- | --- |
+| `ACCOUNTS_TEST_DATABASE_URL` | `accounts_test` |
+| `TEST_PROFILE_DATABASE_URL`, `TEST_PROFILE_APP_DATABASE_URL` | `profiles_test`, migrator and runtime roles respectively |
+| `TEST_MEDIA_DATABASE_URL` | `media_test` |
+| `OPERATIONS_TEST_DATABASE_URL` | `operations_test` |
+
+GitHub Actions has three jobs. The application job creates all five test databases,
+checks empty migrations and replay, runtime grants, typecheck, lint, tests, build,
+production HTTP and Compose syntax. The recovery job runs fenced-worker and
+encrypted-restore tests in a separate PostgreSQL 17 fixture and verifies the
+worker image's native tools. The browser job runs `npm run test:e2e` across
+Chromium, Firefox, WebKit and mobile. See [browser-acceptance.md](browser-acceptance.md)
+and [recovery.md](recovery.md) for local reproduction commands and limits.
+CI publishes no images and deploys nothing; a local pass does not establish a
+successful GitHub Actions run.
 
 `npm run test:http` resets that same disposable database, creates two unrelated
 published fixtures, starts a temporary production server on a free loopback
@@ -282,6 +333,9 @@ transitive resolution and integrity hashes.
 | eslint | 9.39.5 |
 | @types/node | 22.20.5 |
 | @types/react / @types/react-dom | 19.3.0 |
+| sharp | 0.35.5 |
+| @aws-sdk/client-s3 | 3.1165.0 |
+| @playwright/test | 1.65.0 |
 
 Next supports Node >=20.9; this project standardizes on the available Node 22.
 Vitest 5 requires Node >=22.12. TypeScript 5.9.3 keeps compatibility with Next's
@@ -317,7 +371,7 @@ References: [Next installation](https://nextjs.org/docs/app/getting-started/inst
 
 ## Production differences and remaining work
 
-This Compose stack is a local foundation, not a production deployment recipe.
+This Compose stack is a local development environment.
 Its internal CA, loopback bindings and public fallback passwords are intentional
 local settings. Production needs independently supplied secrets, a pinned Caddy
 build containing the Cloudflare DNS module, scoped DNS credentials, DNS-01
@@ -325,9 +379,10 @@ certificates for the apex/wildcard, public DNS, strict origin TLS and a reviewed
 network/firewall setup. Setting `SITE_DOMAIN=may-be.gay` alone does not provide
 any of those. The stock Caddy image here does not contain the Cloudflare module.
 
-Host routing, public reads, schema constraints and renderer tests are foundation
-checks. Invitation enforcement, authentication/cookies/CSRF, owner isolation,
-media safety, rate limits, mail delivery, backups/restore, monitoring,
-moderation, policy decisions and hosted browser acceptance remain later phase
-requirements in [the implementation plan](implementation-plan.md). Do not infer
-launch readiness from a successful build, container healthcheck or CI run.
+Invitation enforcement, cookies/CSRF, ownership, bounded media, rate limits,
+local mail, backup/restore and moderation have local tests. Real provider delivery,
+R2/CDN behavior, public certificate renewal, external uptime monitoring and target
+server capacity still need hosted acceptance. Operator identity, audience, rules,
+support contact and approved policies are launch inputs. The
+[operations runbook](operations-runbook.md) records the deployment and recovery
+procedures; local build and health checks do not establish launch readiness.

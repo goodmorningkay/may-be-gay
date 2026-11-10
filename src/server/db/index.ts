@@ -1,7 +1,7 @@
 import "server-only";
 import postgres from "postgres";
 import { drizzle } from "drizzle-orm/postgres-js";
-import * as schema from "./schema";
+import * as schema from "./schema-all";
 import { requireDatabaseUrl, runtimeConnectionOptions } from "./connection-options";
 
 function connect() {

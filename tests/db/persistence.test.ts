@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { and, eq, sql } from "drizzle-orm";
 import postgres from "postgres";
@@ -9,6 +10,7 @@ import { getPublishedProfile } from "@/server/profiles";
 import * as tables from "@/server/db/schema";
 import { requireDatabaseUrl } from "@/server/db/connection-options";
 import { bootstrapTestDatabase } from "./harness";
+import migrationJournal from "../../drizzle/meta/_journal.json";
 
 const testUrl = process.env.TEST_DATABASE_URL;
 const appUrl = process.env.TEST_APP_DATABASE_URL;
@@ -53,9 +55,33 @@ dbSuite("PostgreSQL persistence (disposable *_test database)", () => {
   it("migrates an empty database and reapplying the journal is a no-op", async () => {
     await harness.applyMigrations();
     const [row] = await harness.client`SELECT count(*)::int AS count FROM drizzle.__drizzle_migrations`;
-    expect(row.count).toBe(3);
+    expect(row.count).toBe(migrationJournal.entries.length);
     const [trigger] = await harness.client`SELECT count(*)::int AS count FROM pg_trigger WHERE tgname = 'draft_version_guard' AND NOT tgisinternal`;
     expect(trigger.count).toBe(1);
+  });
+
+  it("upgrades retained history to a durable counter and prevents lowering it", async () => {
+    const existing = await owner("counter-upgrade"), empty = await owner("counter-empty");
+    await publish(existing, defaultProfileDocument, 7);
+    await publish(existing, defaultProfileDocument, 12);
+    const oldGuards = await readFile(new URL("../../drizzle/0001_persistence_guards.sql", import.meta.url), "utf8");
+    const oldGuard = oldGuards.split("--> statement-breakpoint").find(statement => statement.includes("CREATE FUNCTION public.guard_profile_identity()"))!;
+    const upgrade = await readFile(new URL("../../drizzle/0007_publication_counter.sql", import.meta.url), "utf8");
+    const rollback = new Error("rollback isolated migration probe");
+    await expect(harness.client.begin(async tx => {
+      // Restore the pre-counter shape/guard inside a rollback-only transaction,
+      // then execute the actual migration against existing retained history.
+      await tx.unsafe(oldGuard.replace("CREATE FUNCTION", "CREATE OR REPLACE FUNCTION"));
+      await tx`ALTER TABLE public.profiles DROP COLUMN publication_number`;
+      for (const statement of upgrade.split("--> statement-breakpoint")) await tx.unsafe(statement);
+      expect((await tx`SELECT publication_number FROM profiles WHERE id=${existing.profileId}`)[0].publication_number).toBe(12);
+      expect((await tx`SELECT publication_number FROM profiles WHERE id=${empty.profileId}`)[0].publication_number).toBe(0);
+      await expect(tx.savepoint(async probe => {
+        await probe`UPDATE profiles SET publication_number=11 WHERE id=${existing.profileId}`;
+      })).rejects.toMatchObject({ code: "23514" });
+      await tx`UPDATE profiles SET publication_number=13 WHERE id=${existing.profileId}`;
+      throw rollback;
+    })).rejects.toBe(rollback);
   });
 
   it("has working Better Auth core and pinned 1.7 second-factor fields", async () => {
@@ -261,6 +287,21 @@ dbSuite("PostgreSQL persistence (disposable *_test database)", () => {
       expect(rights).toEqual({ create_schema_objects: false, truncate_names: false, crud: true });
       await expect(client`CREATE TABLE public.app_must_not_create (id int)`).rejects.toThrow();
       await expect(client`TRUNCATE public.username_claims`).rejects.toThrow();
+    } finally { await client.end({ timeout: 5 }); }
+  });
+
+  it.skipIf(!appUrl)("protects the append-only recovery journal and offline replay checkpoint", async () => {
+    const client = postgres(requireDatabaseUrl(appUrl, "TEST_APP_DATABASE_URL"), { max: 1, onnotice: () => {} });
+    try {
+      await client`INSERT INTO public.recovery_events (payload) VALUES ('{"action":"delete-account","ownerId":"journal-fixture"}'::jsonb)`;
+      expect(await client`SELECT sequence FROM public.recovery_events`).toHaveLength(1);
+      await expect(client`UPDATE public.recovery_events SET payload = '{}'::jsonb`).rejects.toThrow();
+      await expect(client`DELETE FROM public.recovery_events`).rejects.toThrow();
+      await expect(client`TRUNCATE public.recovery_events`).rejects.toThrow();
+      await expect(client`SELECT * FROM public.recovery_replay`).rejects.toThrow();
+      await expect(client`SELECT setval('public.recovery_events_sequence_seq', 1)`).rejects.toThrow();
+      await expect(harness.client`UPDATE public.recovery_events SET payload = '{}'::jsonb`).rejects.toThrow("append-only");
+      await expect(harness.client`TRUNCATE public.recovery_events`).rejects.toThrow("append-only");
     } finally { await client.end({ timeout: 5 }); }
   });
 });

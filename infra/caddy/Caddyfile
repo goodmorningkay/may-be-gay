@@ -2,6 +2,25 @@
 	# Local CA only; clients explicitly trust its root certificate.
 	skip_install_trust
 	admin off
+	servers {
+		# Deliver upload admission errors before a slow HTTP/1 client sends EOF.
+		# Otherwise Go drains unread request bytes before writing the response.
+		enable_full_duplex
+	}
+	# Access logs stay disabled. Redact request data in operational error logs too:
+	# verification/recovery links can contain bearer secrets in paths or queries.
+	log default {
+		format filter {
+			wrap json
+			fields {
+				request>uri delete
+				request>headers delete
+				request>remote_ip delete
+				request>remote_port delete
+				request>client_ip delete
+			}
+		}
+	}
 }
 
 # Host/SNI can differ. Unmatched HTTP authorities must not fall through to
@@ -26,17 +45,38 @@
 {$SITE_DOMAIN:may-be.localhost}, app.{$SITE_DOMAIN:may-be.localhost}, *.{$SITE_DOMAIN:may-be.localhost} {
 	tls internal
 
-	# A second boundary for future authenticated routes, before the app's own
-	# strict hostname/path checks. Sibling profile hosts never reach these paths.
+	# A second boundary for authenticated routes. Public reports/metrics have
+	# separate exact-host gates in the application and cannot call private APIs.
 	@wrong_control_host {
 		not host app.{$SITE_DOMAIN:may-be.localhost}
-		path /api /api/* /editor /editor/* /preview /preview/* /admin /admin/* /settings /settings/* /login /signup
+		path /api /api/auth/* /api/account/* /api/profile /api/profile/* /api/media /api/media/* /api/admin/* /api/health /editor /editor/* /preview /preview/* /admin /admin/* /account /account/* /sign-in /sign-up /verify-email /forgot-password /reset-password /two-factor
 	}
 	header @wrong_control_host {
 		Cache-Control "private, no-store"
 		X-Content-Type-Options "nosniff"
 	}
 	respond @wrong_control_host "Page not found." 404
+	@wrong_report_host {
+		not host {$SITE_DOMAIN:may-be.localhost}
+		path /api/reports /api/reports/*
+	}
+	header @wrong_report_host Cache-Control "private, no-store"
+	header @wrong_report_host X-Content-Type-Options "nosniff"
+	respond @wrong_report_host "Page not found." 404
+	@wrong_metrics_host {
+		host {$SITE_DOMAIN:may-be.localhost} app.{$SITE_DOMAIN:may-be.localhost} media.{$SITE_DOMAIN:may-be.localhost}
+		path /api/metrics /api/metrics/*
+	}
+	header @wrong_metrics_host Cache-Control "private, no-store"
+	header @wrong_metrics_host X-Content-Type-Options "nosniff"
+	respond @wrong_metrics_host "Page not found." 404
+	@wrong_media_host {
+		not host media.{$SITE_DOMAIN:may-be.localhost}
+		path /media /media/*
+	}
+	header @wrong_media_host Cache-Control "private, no-store"
+	header @wrong_media_host X-Content-Type-Options "nosniff"
+	respond @wrong_media_host "Page not found." 404
 
 	reverse_proxy app:3000 {
 		# Preserve the HTTP Host for application hostname validation. Never pass
@@ -47,5 +87,7 @@
 		header_up -X-Original-Host
 		header_up -X-May-Be-Host
 		header_up -X-Middleware-Subrequest
+		header_up -X-Real-IP
+		header_up -CF-Connecting-IP
 	}
 }
