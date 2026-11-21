@@ -1,14 +1,15 @@
 import { cache } from "react";
 import type { Metadata } from "next";
-import Link from "next/link";
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
+import { Homepage } from "@/components/homepage/homepage";
 import { ProfileView } from "@/components/profile-view";
 import { getSiteDomain, resolveHost } from "@/domain/hosts";
+import { readClaimUsername, withClaimUsername } from "@/domain/username-intent";
+import { appOrigin } from "@/server/http";
 import { getPublishedProfile } from "@/server/profiles";
 import { PublicAnalytics } from "@/components/operations/public-analytics";
 import { reportUrl } from "@/domain/operations";
-import styles from "./site.module.css";
 
 export const dynamic = "force-dynamic";
 
@@ -25,7 +26,7 @@ const readPage = cache(async () => {
 
 export async function generateMetadata(): Promise<Metadata> {
   const { domain, host, profile } = await readPage();
-  if (!profile) return { title: host.kind === "app" ? "Your editor" : "A little space to be yourself" };
+  if (!profile) return { title: host.kind === "app" ? "Your editor" : "A link-in-bio page you can make yours" };
   const title = profile.document.pageTitle || profile.document.displayName;
   const description = profile.document.pageDescription || profile.document.bio;
   const url = `https://${profile.username}.${domain}`;
@@ -37,39 +38,18 @@ export async function generateMetadata(): Promise<Metadata> {
   };
 }
 
-export default async function Home() {
+export default async function Home({ searchParams }: { searchParams: Promise<{ username?: string | string[] }> }) {
   const { domain, host, profile } = await readPage();
   if (profile) return <>
     <ProfileView document={profile.document} username={profile.username} siteDomain={domain} media={profile.media} supportHref={reportUrl(profile.username, {}, domain)} />
     <PublicAnalytics username={profile.username} domain={domain} />
   </>;
   if (host.kind === "app") redirect("/editor");
-  return (
-    <main className={styles.page}>
-      <header className={styles.header}>
-        <Link className={styles.wordmark} href="/" prefetch={false}>may-be.gay</Link>
-        <a href="/support">Support & reporting</a>
-      </header>
-      <div className={styles.hero}>
-        <section className={styles.intro}>
-          <p className={styles.eyebrow}>A little space on the internet</p>
-          <h1>All your places.<br />A page that’s you.</h1>
-          <p>Your work, your interests, your favourite corners of the web. A home for your links, with room for a little personality.</p>
-          <a className={styles.button} href="/examples">Find your look <span aria-hidden="true">↗</span></a>
-          <p className={styles.note}>In development · preparing for an invite-only beta</p>
-        </section>
-        <aside className={styles.postcard} aria-label="An example of your future address">
-          <span>A place to call your own</span>
-          <p>you<span>.may-be.gay</span></p>
-          <span>A few links. A lot of you.</span>
-        </aside>
-      </div>
-      <section className={styles.details} aria-label="What we're making">
-        <div><h2>Make yourself at home</h2><p>Six starting looks, two layouts, and space to share what matters to you.</p></div>
-        <div><h2>Your pace, your page</h2><p>Keep a private draft and choose when to publish.</p></div>
-        <div><h2>A small beginning</h2><p>We’re building towards a free service, starting with a small invited group.</p></div>
-      </section>
-      <footer className={styles.footer}><span>may-be.gay</span><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/rules">Community rules</a><a href={`https://app.${domain}`}>Open your editor <span aria-hidden="true">↗</span></a></footer>
-    </main>
-  );
+  const { username: requestedUsername } = await searchParams;
+  const username = readClaimUsername(requestedUsername);
+  const origin = appOrigin();
+  if (username) redirect(`${origin}${withClaimUsername("/sign-up", username)}`);
+  const rejectedUsername = requestedUsername === undefined ? undefined
+    : typeof requestedUsername === "string" ? requestedUsername.slice(0, 30) : "";
+  return <Homepage appOrigin={origin} domain={domain} rejectedUsername={rejectedUsername} />;
 }

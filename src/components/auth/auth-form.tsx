@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { withClaimUsername } from "@/domain/username-intent";
 
 type Mode = "sign-in" | "sign-up" | "verify-email" | "forgot-password" | "reset-password" | "two-factor";
 export async function accountRequest(path: string, body: unknown, method = "POST", headers: Record<string, string> = {}) {
@@ -11,14 +12,19 @@ export async function accountRequest(path: string, body: unknown, method = "POST
   return data;
 }
 const titles: Record<Mode, string> = { "sign-in": "Sign in", "sign-up": "Create your account", "verify-email": "Verify your email", "forgot-password": "Forgot your password?", "reset-password": "Choose a new password", "two-factor": "Confirm your sign-in" };
-export function AuthForm({ mode, verificationStatus }: { mode: Mode; verificationStatus?: "success" | "error" }) {
+export function AuthForm({ mode, verificationStatus, claimUsername }: { mode: Mode; verificationStatus?: "success" | "error"; claimUsername?: string }) {
   const [message, setMessage] = useState(verificationStatus === "success" ? "Email verified. You can sign in now." : verificationStatus === "error" ? "This verification link is invalid or expired. Request a new one below." : ""); const [busy, setBusy] = useState(false);
   const inviteInput = useRef<HTMLInputElement>(null); const [recovery, setRecovery] = useState(false);
   const router = useRouter();
+  const signedInPath = claimUsername ? withClaimUsername("/editor", claimUsername) : "/account/security";
+  const verificationPath = withClaimUsername("/verify-email?verified=1", claimUsername);
   useEffect(() => {
     if (mode === "sign-up") {
       const token = new URLSearchParams(window.location.hash.slice(1)).get("invite");
-      if (token && inviteInput.current) { inviteInput.current.value = token; history.replaceState(null, "", window.location.pathname); }
+      if (token && inviteInput.current) {
+        inviteInput.current.value = token;
+        history.replaceState(null, "", window.location.pathname + window.location.search);
+      }
     }
   }, [mode]);
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -26,13 +32,13 @@ export function AuthForm({ mode, verificationStatus }: { mode: Mode; verificatio
     const fields = Object.fromEntries(new FormData(event.currentTarget));
     try {
       if (mode === "sign-in") {
-        const data = await accountRequest("/api/auth/sign-in/email", { ...fields, callbackURL: "/account/security" });
-        router.push(data.twoFactorRedirect ? "/two-factor" : "/account/security"); router.refresh();
+        const data = await accountRequest("/api/auth/sign-in/email", { ...fields, callbackURL: signedInPath });
+        router.push(data.twoFactorRedirect ? withClaimUsername("/two-factor", claimUsername) : signedInPath); router.refresh();
       } else if (mode === "sign-up") {
-        await accountRequest("/api/auth/sign-up/email", { ...fields, callbackURL: "/verify-email?verified=1" });
+        await accountRequest("/api/auth/sign-up/email", { ...fields, callbackURL: verificationPath });
         setMessage("If eligible, check your email for the verification link, then sign in.");
       } else if (mode === "verify-email") {
-        await accountRequest("/api/auth/send-verification-email", { ...fields, callbackURL: "/verify-email?verified=1" });
+        await accountRequest("/api/auth/send-verification-email", { ...fields, callbackURL: verificationPath });
         setMessage("If eligible, a verification link is on its way. After verifying, sign in.");
       } else if (mode === "forgot-password") {
         await accountRequest("/api/auth/request-password-reset", { ...fields, redirectTo: "/reset-password" });
@@ -43,7 +49,7 @@ export function AuthForm({ mode, verificationStatus }: { mode: Mode; verificatio
         history.replaceState(null, "", "/reset-password"); setMessage("Password reset. Your old sessions are signed out. Sign in with your new password.");
       } else {
         await accountRequest(`/api/auth/two-factor/${recovery ? "verify-backup-code" : "verify-totp"}`, { code: fields.code });
-        router.push("/account/security"); router.refresh();
+        router.push(signedInPath); router.refresh();
       }
     } catch (error) { setMessage(error instanceof Error ? error.message : "Request failed."); }
     finally { setBusy(false); }
@@ -59,6 +65,6 @@ export function AuthForm({ mode, verificationStatus }: { mode: Mode; verificatio
       {mode === "two-factor" && <><label>{recovery ? "Recovery code" : "Authenticator code"}<input name="code" required autoComplete="one-time-code" inputMode={recovery ? "text" : "numeric"} maxLength={64} /></label><button type="button" onClick={() => setRecovery(!recovery)}>{recovery ? "Use authenticator" : "Use a recovery code"}</button></>}
       <button disabled={busy} type="submit">{busy ? "Please wait…" : mode === "verify-email" ? "Send verification link" : titles[mode]}</button>
     </form><p role="status" aria-live="polite">{message}</p>
-    <nav aria-label="Account"><Link href="/sign-in">Sign in</Link>{" · "}<Link href="/sign-up">Use an invitation</Link>{" · "}<Link href="/forgot-password">Reset password</Link></nav>
+    <nav aria-label="Account"><Link href={withClaimUsername("/sign-in", claimUsername)}>Sign in</Link>{" · "}<Link href={withClaimUsername("/sign-up", claimUsername)}>Use an invitation</Link>{" · "}<Link href="/forgot-password">Reset password</Link></nav>
   </section>;
 }

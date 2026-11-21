@@ -18,7 +18,7 @@ npm ci
 SITE_DOMAIN=may-be.localhost npm run dev
 ```
 
-Open `http://may-be.localhost:3000` and follow **Find your look**. The sample
+Open `http://may-be.localhost:3000` and select the profile preview. The sample
 offers six presets, two layouts and three system-font choices; it saves no data.
 Plain `localhost` is deliberately outside the application's hostname policy.
 Links between the apex and app hosts use HTTPS; use the complete stack below

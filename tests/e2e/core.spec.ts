@@ -1,4 +1,43 @@
-import { test, expect, account, app, apex, fixture, saved, state, publish, observeContext } from "./helpers";
+import { test, expect, account, app, apex, fixture, password, saved, state, publish, observeContext } from "./helpers";
+
+test("homepage keeps the requested address through invite signup and verification", async ({ page, expectedErrors }, info) => {
+  expectedErrors.push(/^Console: Failed to load resource: the server responded with a status of 404.*\[https:\/\/app\.may-be\.localhost\/api\/profile\]$/);
+  const username = `${info.project.name}-homepage`;
+  const email = `${username}@example.invalid`;
+  const invite = await fixture("invite", email);
+
+  await page.goto(apex);
+  await expect(page.getByRole("link", { name: "Log in" })).toHaveAttribute("href", `${app}/sign-in`);
+  await page.getByRole("textbox", { name: "Username" }).fill(username);
+  await page.getByRole("button", { name: "Claim address" }).click();
+  await expect(page).toHaveURL(`${app}/sign-up?username=${username}`);
+
+  await page.getByLabel("Your name").fill("Homepage test account");
+  await page.getByLabel("Invitation token").fill(invite.token);
+  await page.getByLabel("Email", { exact: true }).fill(email);
+  await page.getByLabel("Password").fill(password);
+  await page.getByRole("button", { name: "Create your account" }).click();
+  await expect(page.getByRole("status")).toContainText("check your email");
+  await fixture("drain");
+  const [mail] = await fixture("mail", email);
+  await page.goto(mail.url);
+  await expect(page.getByRole("status")).toContainText("Email verified");
+
+  await page.getByRole("link", { name: "Sign in" }).click();
+  await expect(page).toHaveURL(`${app}/sign-in?username=${username}`);
+  await page.getByLabel("Email", { exact: true }).fill(email);
+  await page.getByLabel("Password").fill(password);
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(page.getByRole("textbox", { name: "Username" })).toHaveValue(username);
+
+  await page.goto(apex);
+  await page.getByRole("textbox", { name: "Username" }).fill(username);
+  await page.getByRole("button", { name: "Claim address" }).click();
+  await expect(page).toHaveURL(`${app}/editor?username=${username}`);
+  await expect(page.getByRole("textbox", { name: "Username" })).toHaveValue(username);
+  await page.getByRole("button", { name: "Claim this username" }).click();
+  await expect(page.getByLabel("Display name", { exact: true })).toBeVisible();
+});
 
 test("invited owners edit privately, upload real media, publish and remain isolated", async ({ page, context, browser, expectedErrors }, info) => {
   // Username onboarding intentionally reads a profile before the claim exists.
