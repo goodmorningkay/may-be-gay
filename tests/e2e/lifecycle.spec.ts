@@ -1,7 +1,7 @@
 import { createHmac } from "node:crypto";
 import { randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { test, expect, account, app, apex, fixture, saved, state, publish, action, signIn, password, observeContext, confirmPassword } from "./helpers";
+import { test, expect, account, app, apex, fixture, saved, state, publish, action, signIn, password, observeContext, confirmPassword, editorSection } from "./helpers";
 
 test("autosave races, stale tabs, failure recovery, history, report administration, export and deletion", async ({ page, context, expectedErrors }) => {
   test.setTimeout(300_000);
@@ -52,10 +52,12 @@ test("autosave races, stale tabs, failure recovery, history, report administrati
   await page.unroute("**/api/profile/publish"); await page.getByRole("button", { name: "Retry saving / resume editing", exact: true }).click(); await saved(page);
   for (let n = 2; n <= 6; n++) { await page.getByLabel("Bio", { exact: true }).fill(`Publication snapshot ${n}`); await publish(page); }
   const history = await state(context); expect(history.revisions).toHaveLength(5);
+  await editorSection(page, "Publishing");
   await expect(page.getByRole("button", { name: /^Restore publication/ })).toHaveCount(5);
   await action(page, "Unpublish page");
   expect((await context.request.get("https://lifecycle-a.may-be.localhost")).status()).toBe(404);
   await action(page, `Restore publication ${history.revisions[4].revisionNumber}`);
+  await editorSection(page, "About you");
   await expect(page.getByLabel("Bio", { exact: true })).toHaveValue("Publication snapshot 2");
   expect((await state(context)).revisions).toHaveLength(5);
   // Revoke through the real account API in a second tab, retain the first tab's edits.
@@ -65,6 +67,7 @@ test("autosave races, stale tabs, failure recovery, history, report administrati
   await signIn(stale, owner.email);
   await page.getByRole("button", { name: "Retry saving / resume editing", exact: true }).click(); await saved(page); await stale.close();
   // Genuine image/audio validation; invalid content accepted for processing then rejected.
+  await editorSection(page, "Media");
   const files = await fixture("fixtures");
   const rejected = page.waitForResponse(r => r.url().includes("/api/media?kind=image") && r.request().method() === "POST");
   await page.getByLabel("Upload image", { exact: false }).setInputFiles({ name: "invalid.png", mimeType: "image/png", buffer: Buffer.from("not an image") });
@@ -72,7 +75,7 @@ test("autosave races, stale tabs, failure recovery, history, report administrati
   let library = await (await context.request.get(`${app}/api/media`, { headers: { "x-editor-profile": (await state(context)).profileId } })).json();
   expect(library.assets.some((a: { state: string }) => a.state === "rejected")).toBe(true);
   expect((await context.request.post(`${app}/api/media?kind=image`, { headers: { origin: app, "x-editor-profile": (await state(context)).profileId, "content-type": "application/octet-stream" }, data: Buffer.alloc(5 * 1024 ** 2 + 1) })).status()).toBe(413);
-  for (const [label, kind, file] of [["Upload image", "image", files.image], ["Upload music", "audio", files.audio]]) {
+  for (const [label, kind, file] of [["Upload image", "image", files.image], ["Upload MP3", "audio", files.audio]]) {
     const response = page.waitForResponse(r => r.url().includes(`/api/media?kind=${kind}`) && r.request().method() === "POST");
     await page.getByLabel(label, { exact: false }).setInputFiles(file); expect((await response).status()).toBe(202); await fixture("drain");
     await page.getByRole("button", { name: "Refresh media", exact: true }).click();
@@ -85,6 +88,7 @@ test("autosave races, stale tabs, failure recovery, history, report administrati
   let publicAudio = (await mediaVisitor.locator("audio").getAttribute("src"))!;
   expect((await context.request.get(publicAudio)).status()).toBe(200);
   const mediaPublication = (await state(context)).revisions[0].revisionNumber;
+  await editorSection(page, "Publishing");
   await action(page, "Unpublish page");
   expect((await context.request.get(publicAudio)).status()).toBe(404);
   await fixture("drain");

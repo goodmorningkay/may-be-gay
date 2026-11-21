@@ -79,6 +79,11 @@ export async function account(page: Page, username: string, admin = false) {
   await expect(page.getByLabel("Display name", { exact: true })).toBeVisible();
   return { email, username };
 }
+export async function editorSection(page: Page, name: string) {
+  const picker = page.getByLabel("Section", { exact: true });
+  if (await picker.isVisible()) await picker.selectOption({ label: name });
+  else await page.getByRole("navigation", { name: "Editor sections" }).getByRole("button", { name, exact: true }).click();
+}
 export async function saved(page: Page) { await expect(page.getByRole("status").filter({ hasText: /^Draft saved · version/ })).toBeVisible(); }
 export async function state(context: BrowserContext) {
   const response = await context.request.get(`${app}/api/profile`); expect(response.status()).toBe(200); return response.json();

@@ -1,4 +1,4 @@
-import { test, expect, account, app, apex, fixture, password, saved, state, publish, observeContext } from "./helpers";
+import { test, expect, account, app, apex, fixture, password, saved, state, publish, observeContext, editorSection } from "./helpers";
 
 test("homepage keeps the requested address through invite signup and verification", async ({ page, expectedErrors }, info) => {
   expectedErrors.push(/^Console: Failed to load resource: the server responded with a status of 404.*\[https:\/\/app\.may-be\.localhost\/api\/profile\]$/);
@@ -67,22 +67,41 @@ test("invited owners edit privately, upload real media, publish and remain isola
     expect((await context.request.put(`${app}/api/profile`, { headers: { origin: `https://${prefix}-b.may-be.localhost` }, data: { expectedVersion: original.editVersion, document: original.document } })).status()).toBe(403);
     // Real keyboard events: create and reorder without pointer dragging.
     await page.getByLabel("Display name", { exact: true }).fill("Public chosen name");
-    await page.getByLabel("Public contact email (optional)", { exact: true }).fill("public-contact@example.invalid");
-    await page.getByRole("button", { name: "Add a link", exact: true }).focus();
+    await page.getByLabel("Public contact email", { exact: true }).fill("public-contact@example.invalid");
+    await expect(page.getByRole("heading", { name: "Links", exact: true })).toBeHidden();
+    await editorSection(page, "Links");
+    await expect(page.getByLabel("Display name", { exact: true })).toBeHidden();
+    const linkEditor = page.getByRole("dialog", { name: "Edit link" });
+    const addLink = page.getByRole("button", { name: "Add link", exact: true });
+    const editLink = (name: string) => page.getByRole("button", { name: new RegExp(`^${name}`) }).click();
+    const closeLink = () => linkEditor.getByRole("button", { name: "Close link editor", exact: true }).click();
+    await addLink.focus();
     await page.keyboard.press("Enter");
-    await expect(page.getByLabel("Link 1 label", { exact: true })).toBeFocused();
+    await expect(linkEditor.getByLabel("Label", { exact: true })).toBeFocused();
     await page.keyboard.type("First link"); await page.keyboard.press("Tab"); await page.keyboard.type(`${apex}/rules`);
-    await page.getByRole("button", { name: "Add a link", exact: true }).click();
-    await page.getByLabel("Link 2 label", { exact: true }).fill("Hidden destination");
-    await page.getByLabel("Link 2 URL", { exact: true }).fill(`${apex}/privacy?private-draft=1`);
-    await page.getByLabel("Show on public page").nth(1).uncheck(); await saved(page);
+    await closeLink();
+    await addLink.click();
+    await closeLink();
+    await editorSection(page, "About you");
+    await page.getByRole("link", { name: /^links\.1\.url:/ }).click();
+    await expect(linkEditor.getByLabel("URL", { exact: true })).toBeFocused();
+    await linkEditor.getByLabel("Label", { exact: true }).fill("Hidden destination");
+    await linkEditor.getByLabel("URL", { exact: true }).fill(`${apex}/privacy?private-draft=1`);
+    await linkEditor.getByLabel("Show on public page").uncheck(); await closeLink(); await saved(page);
     const before = await state(context);
-    await page.getByRole("button", { name: "Move link 2 up", exact: true }).focus(); await page.keyboard.press("Enter");
-    await expect(page.getByLabel("Link 1 label", { exact: true })).toBeFocused(); await saved(page);
+    await editLink("Hidden destination");
+    await linkEditor.getByRole("button", { name: "Move up", exact: true }).focus(); await page.keyboard.press("Enter");
+    await expect(linkEditor.getByLabel("Label", { exact: true })).toBeFocused();
+    await closeLink(); await saved(page);
     expect((await state(context)).document.links.map((l: { id: string }) => l.id)).toEqual(before.document.links.map((l: { id: string }) => l.id).reverse());
-    await page.getByLabel("Link 2 label", { exact: true }).fill("Visible edited link");
-    await page.getByLabel("Show on public page").first().check(); await saved(page);
-    await page.getByLabel("Show on public page").first().uncheck();
+    await editLink("First link");
+    await linkEditor.getByLabel("Label", { exact: true }).fill("Visible edited link");
+    await closeLink();
+    await editLink("Hidden destination");
+    await linkEditor.getByLabel("Show on public page").check(); await closeLink(); await saved(page);
+    await editLink("Hidden destination");
+    await linkEditor.getByLabel("Show on public page").uncheck(); await closeLink();
+    await editorSection(page, "Appearance");
     const presets = page.getByRole("group", { name: "Appearance presets" }).getByRole("button");
     for (const preset of await presets.all()) { await preset.click(); await expect(preset).toHaveAttribute("aria-pressed", "true"); }
     await page.getByLabel("Layout", { exact: true }).selectOption("split");
@@ -95,6 +114,7 @@ test("invited owners edit privately, upload real media, publish and remain isola
     await page.getByLabel("Accent colour", { exact: true }).fill("#743810");
     await saved(page);
     expect(await page.evaluate(() => matchMedia("(prefers-reduced-motion: reduce)").matches)).toBe(true);
+    await editorSection(page, "Media");
     const files = await fixture("fixtures");
     let upload = page.waitForResponse(r => r.url().includes("/api/media?kind=image") && r.request().method() === "POST");
     await page.getByLabel("Upload image", { exact: false }).setInputFiles(files.image);
@@ -107,7 +127,7 @@ test("invited owners edit privately, upload real media, publish and remain isola
     await page.getByLabel("Background image", { exact: true }).selectOption(image!);
     expect((await sibling.request.get(`${app}/api/media/${image}/content`)).status()).toBe(404);
     upload = page.waitForResponse(r => r.url().includes("/api/media?kind=audio") && r.request().method() === "POST");
-    await page.getByLabel("Upload music", { exact: false }).setInputFiles(files.audio);
+    await page.getByLabel("Upload MP3", { exact: false }).setInputFiles(files.audio);
     expect((await upload).status()).toBe(202);
     await fixture("drain"); await page.getByRole("button", { name: "Refresh media", exact: true }).click();
     await expect(page.getByLabel("Profile music", { exact: true }).locator("option")).toHaveCount(2);
@@ -117,14 +137,20 @@ test("invited owners edit privately, upload real media, publish and remain isola
     const media = await (await context.request.get(`${app}/api/media`, { headers: { "x-editor-profile": (await state(context)).profileId } })).json();
     expect(media.assets.filter((a: { state: string }) => a.state === "ready")).toHaveLength(2);
     expect(media.usage.chargedBytes).toBeGreaterThan(0); expect(media.usage.chargedBytes).toBeLessThan(media.quota.limitBytes);
-    // Both actual iframe viewport sizes, rendering and authenticated image reads under CSP.
+    // The preview still uses real iframe viewport sizes and private media reads under CSP.
+    const mobileView = page.getByRole("group", { name: "Editor view" });
+    const isMobile = await mobileView.isVisible();
+    if (isMobile) await mobileView.getByRole("button", { name: "Preview", exact: true }).click();
     for (const [button, width] of [["Desktop", 960], ["Mobile", 375]] as const) {
-      await page.getByRole("button", { name: button, exact: true }).click();
+      if (isMobile && button === "Desktop") continue;
+      if (!isMobile) await page.getByRole("button", { name: button, exact: true }).click();
       const frame = page.frameLocator("iframe");
       await expect(frame.getByRole("heading", { name: "Public chosen name", exact: true })).toBeVisible();
-      expect(await page.locator("iframe").evaluate((el: HTMLIFrameElement) => el.contentWindow?.innerWidth)).toBe(width);
+      await expect.poll(() => page.locator("iframe").evaluate((el: HTMLIFrameElement) => el.contentWindow?.innerWidth)).toBe(width);
       await expect.poll(() => frame.locator("img").first().evaluate((el: HTMLImageElement) => el.naturalWidth)).toBeGreaterThan(0);
     }
+    if (isMobile) await mobileView.getByRole("button", { name: "Edit", exact: true }).click();
+    await editorSection(page, "About you");
     const viewsBefore = (await fixture("state", owner.email)).views;
     const preview = await context.newPage(); await preview.goto(`${app}/preview`);
     await expect(preview.getByRole("heading", { name: "Public chosen name", exact: true })).toBeVisible(); await preview.close();
@@ -160,7 +186,9 @@ test("invited owners edit privately, upload real media, publish and remain isola
     expect(analytics.links.some((d: { clicks: number }) => d.clicks > 0)).toBe(true);
     expect((await state(sibling)).document.displayName).toBe("Other owner's private draft");
     const stableVisibleId = (await state(context)).document.links[1].id;
-    await page.getByRole("button", { name: "Delete link 1", exact: true }).click(); await saved(page);
+    await editorSection(page, "Links");
+    await editLink("Hidden destination");
+    await linkEditor.getByRole("button", { name: "Delete link", exact: true }).click(); await saved(page);
     expect((await state(context)).document.links.map((l: { id: string }) => l.id)).toEqual([stableVisibleId]);
     // Native links and content remain usable without JavaScript.
     const native = await browser.newContext({ ignoreHTTPSErrors: true, javaScriptEnabled: false });

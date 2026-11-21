@@ -1,11 +1,12 @@
 import { randomBytes } from "node:crypto";
 import { request as httpsRequest } from "node:https";
-import { test, expect, account, app, fixture, state } from "./helpers";
+import { test, expect, account, app, fixture, state, editorSection } from "./helpers";
 
 test("the media library retains the original editor identity after a shared-cookie account switch", async ({ page, context, expectedErrors }) => {
   expectedErrors.push(/^Console: Failed to load resource: the server responded with a status of (404|409).*\[https:\/\/app\.may-be\.localhost\/api\/(profile|media)/);
   const suffix = randomBytes(3).toString("hex");
   await account(page, `media-a-${suffix}`);
+  await editorSection(page, "Media");
   const a = await state(context), files = await fixture("fixtures");
   const aUpload = page.waitForResponse(r => r.url().includes("/api/media?kind=image") && r.request().method() === "POST");
   await page.getByLabel("Upload image", { exact: false }).setInputFiles(files.image);
@@ -16,6 +17,7 @@ test("the media library retains the original editor identity after a shared-cook
   const switcher = await context.newPage();
   await context.request.post(`${app}/api/auth/sign-out`, { headers: { origin: app }, data: {} });
   await account(switcher, `media-b-${suffix}`);
+  await editorSection(switcher, "Media");
   const b = await state(context);
   const upload = switcher.waitForResponse(r => r.url().includes("/api/media?kind=image") && r.request().method() === "POST");
   await switcher.getByLabel("Upload image", { exact: false }).setInputFiles(files.image);
@@ -40,7 +42,7 @@ test("the media library retains the original editor identity after a shared-cook
   // application consumes it; assert its displayed code, then verify JSON via
   // the separate API requests below without relying on DevTools body retention.
   await expect(page.getByText("(ACCOUNT_CHANGED)", { exact: true })).toBeVisible();
-  await page.getByText(/^Asset library/).click();
+  await page.getByText("Open asset library", { exact: true }).click();
   const staleDeletion = page.waitForResponse(r => r.request().method() === "DELETE" && new URL(r.url()).pathname.startsWith("/api/media/"));
   await page.getByRole("button", { name: /^Delete Image/ }).click();
   const deleted = await staleDeletion;
