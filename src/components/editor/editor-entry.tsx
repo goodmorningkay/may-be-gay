@@ -8,10 +8,10 @@ import { editorTransport, requestJson } from "./api";
 import { ProfileEditor } from "./profile-editor";
 import styles from "./editor.module.css";
 
-export function EditorEntry({ accountId, siteDomain }: { accountId: string; siteDomain: string }) {
+export function EditorEntry({ accountId, siteDomain, initialUsername = "" }: { accountId: string; siteDomain: string; initialUsername?: string }) {
   const [state, setState] = useState<EditorState | null>(null);
   const [claim, setClaim] = useState(false);
-  const [username, setUsername] = useState("");
+  const [username, setUsername] = useState(initialUsername);
   const [busy, setBusy] = useState(true);
   const [problem, setProblem] = useState<EditorRequestError | null>(null);
   const mounted = useRef(false);

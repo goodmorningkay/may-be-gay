@@ -121,14 +121,21 @@ async function main() {
       checks++;
       return result;
     }
-    assert.match((await check("may-be.localhost", "/", 200)).body, /All your places/);
+    const home = await check("may-be.localhost", "/", 200);
+    assert.match(home.body, /A link-in-bio/);
+    assert.match(home.body, /Claim address/);
+    assert.match(home.body, /href="https:\/\/app\.may-be\.localhost\/sign-in"/);
+    assert.match(String(home.headers["content-security-policy"]), /form-action 'self' https:\/\/app\.may-be\.localhost\/sign-up(?:;|$)/);
+    assert.equal((await check("may-be.localhost", "/?username=first-click", 307)).headers.location, "https://app.may-be.localhost/sign-up?username=first-click");
+    assert.match((await check("may-be.localhost", "/?username=app", 200)).body, /Choose another username/);
     assert.equal((await check("app.may-be.localhost", "/", 307)).headers.location, "/editor");
     await check("app.may-be.localhost", "/sign-in", 200);
     await check("app.may-be.localhost", "/api/profile", 401);
     await check("app.may-be.localhost", "/api/profile", 403, { origin: "https://alice-http.may-be.localhost" }, "PUT");
     await check("may-be.localhost", "/examples?preset=midnight&layout=split&font=mono", 200);
     await check("may-be.localhost", "/examples?preset=javascript", 404);
-    await check("may-be.localhost", "/support", 200);
+    const support = await check("may-be.localhost", "/support", 200);
+    assert.match(String(support.headers["content-security-policy"]), /form-action 'self'(?:;|$)/);
     await check("may-be.localhost", "/privacy", 200);
     await check("may-be.localhost", "/terms", 200);
     await check("may-be.localhost", "/rules", 200);

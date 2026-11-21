@@ -11,6 +11,8 @@ export async function proxy(request: NextRequest) {
   const development = process.env.NODE_ENV === "development";
   // Public assets use the one configured media origin, never an authored URL.
   const mediaOrigin = `https://media.${domain}`;
+  // The homepage's username form redirects from the apex to invite signup.
+  const signupTarget = host.kind === "apex" && request.nextUrl.pathname === "/" ? ` https://app.${domain}/sign-up` : "";
   const csp = [
     "default-src 'none'",
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${development ? " 'unsafe-eval'" : ""}`,
@@ -20,7 +22,7 @@ export async function proxy(request: NextRequest) {
     "font-src 'self'",
     ...(host.kind === "app" ? ["frame-src 'self'"] : []),
     `connect-src 'self'${development ? " ws: wss:" : ""}`,
-    "base-uri 'none'", "object-src 'none'", "frame-ancestors 'none'", "form-action 'self'",
+    "base-uri 'none'", "object-src 'none'", "frame-ancestors 'none'", `form-action 'self'${signupTarget}`,
     ...(domain === "may-be.gay" && !development ? ["upgrade-insecure-requests"] : []),
   ].join("; ");
 

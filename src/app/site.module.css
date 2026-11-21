@@ -1,23 +1,4 @@
 .page { max-width: 76rem; margin: 0 auto; padding: clamp(1.25rem, 4vw, 3.5rem); }
-.header, .footer { display: flex; justify-content: space-between; align-items: center; gap: 1.5rem; flex-wrap: wrap; }
-.header a, .footer a { padding-block: .6rem; }
-.wordmark { color: var(--foreground); font-size: 1.4rem; font-weight: 750; letter-spacing: -.06em; text-decoration: none; }
-.hero { display: grid; grid-template-columns: 1.3fr 1fr; gap: 4rem; align-items: center; padding-block: 4rem 5rem; }
-.intro { max-width: 40rem; padding-block: 2rem; }
-.eyebrow { color: var(--accent); font-weight: 600; }
-.intro h1 { font-family: Georgia, serif; font-size: clamp(2.75rem, 5.5vw, 4.6rem); line-height: 1.08; letter-spacing: -.045em; font-weight: 500; margin: 1.5rem 0; }
-.intro > p:not(.eyebrow, .note) { max-width: 35rem; color: var(--muted); font-size: 1.15rem; }
-.button { display: inline-flex; gap: 2rem; align-items: center; color: #fffaf2; background: #784236; padding: .9rem 1.3rem; border: 1px solid #784236; border-radius: 5px; font-weight: 600; text-decoration: none; margin-top: 1rem; }
-.button:hover { background: #60352b; }
-.note { font-size: .875rem; color: var(--muted); margin-top: 1.5rem; }
-.postcard { background: #ede8da; border: 1px solid #c6bda9; border-radius: 4px; padding: 3.5rem 1.5rem; text-align: center; color: #554c3b; transform: rotate(-3deg); }
-.postcard > span { font-family: Georgia, serif; font-style: italic; }
-.postcard p { font-size: clamp(1.9rem, 3.5vw, 2.8rem); font-weight: 650; letter-spacing: -.055em; margin-block: 2rem; }
-.postcard p span { color: #7a573d; }
-.details { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2.5rem; border-top: 1px solid var(--border); padding-block: 2rem 3rem; }
-.details h2 { font-size: 1.1rem; }
-.details p { color: var(--muted); }
-.footer { padding-block: 1.5rem; border-top: 1px solid var(--border); font-size: .875rem; }
 .content { max-width: 42rem; padding-block: 2rem; }
 .content h1 { font-family: Georgia, serif; font-size: 2.75rem; font-weight: 500; letter-spacing: -.03em; }
 .sampleBar { padding: 1rem clamp(1.25rem, 4vw, 3.5rem); border-bottom: 1px solid var(--border); }
@@ -26,8 +7,3 @@
 .controls label { display: grid; gap: .25rem; font-size: .875rem; }
 .controls select, .controls button { padding: .65rem .8rem; border: 1px solid #8e8276; border-radius: 4px; background: #fffdf7; color: #292622; }
 .controls button { cursor: pointer; font-weight: 600; }
-@media (max-width: 48rem) {
-  .hero { grid-template-columns: 1fr; gap: 1rem; padding-block: 1.5rem 3rem; }
-  .postcard { transform: none; padding-block: 2rem; }
-  .details { grid-template-columns: 1fr; gap: .75rem; }
-}
