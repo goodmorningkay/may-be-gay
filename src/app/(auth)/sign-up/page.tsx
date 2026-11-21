@@ -1,3 +1,4 @@
+import { getSiteDomain } from "@/domain/hosts";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { AuthForm } from "@/components/auth/auth-form";
@@ -7,5 +8,5 @@ import { getSession } from "@/server/auth/session";
 export default async function Page({ searchParams }: { searchParams: Promise<{ username?: string | string[] }> }) {
   const username = readClaimUsername((await searchParams).username);
   if (username && await getSession(await headers())) redirect(withClaimUsername("/editor", username));
-  return <AuthForm mode="sign-up" claimUsername={username} />;
+  return <AuthForm siteDomain={getSiteDomain()} mode="sign-up" claimUsername={username} />;
 }

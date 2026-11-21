@@ -28,7 +28,7 @@ test("A account screen with a fresh B session cannot export or delete B", async 
   const suffix = randomBytes(3).toString("hex");
   const a = await account(page, `review-a-${suffix}`);
   await confirmPassword(page); await page.goto(`${app}/account`);
-  await expect(page.getByText(`Signed in as ${a.email}.`, { exact: true })).toBeVisible();
+  await expect(page.getByText(`Signed in as ${a.email}`, { exact: true })).toBeVisible();
   const security = await context.newPage(); await security.goto(`${app}/account/security`);
   const switcher = await context.newPage();
   expect((await context.request.post(`${app}/api/auth/sign-out`, { headers: { origin: app }, data: {} })).status()).toBe(200);
@@ -109,7 +109,7 @@ test("native auth and security submissions keep every credential out of URLs wit
       await submitForm(0);
     }
     await native.goto(`${app}/account/security`);
-    const count = await native.locator("form").count(); expect(count).toBe(7);
+    const count = await native.locator("form").count(); expect(count).toBe(3);
     for (let i = 0; i < count; i++) {
       await native.goto(`${app}/account/security`); await submitForm(i);
     }
@@ -155,13 +155,13 @@ test("native support selects only published targets and stores a private link/me
       // Select by accessible text, never ask visitors to discover an asset UUID.
       await visitor.getByLabel("Report target", { exact: true }).selectOption({ label });
       const details = `Private native review ${randomUUID()}`, contact = "private-native-reporter@example.invalid";
-      await visitor.getByLabel("What should we review?", { exact: true }).fill(details);
+      await visitor.getByLabel("Report details (optional)", { exact: true }).fill(details);
       await visitor.getByLabel("Private reply email (optional)", { exact: true }).fill(contact);
       const receipt = visitor.waitForResponse(r => r.url() === `${apex}/api/reports` && r.request().method() === "POST");
       await visitor.getByRole("button", { name: "Submit report", exact: true }).click();
       const response = await receipt; expect(response.status()).toBe(202);
       expect(response.request().headers()["origin"]).toBe(apex);
-      await expect(visitor.getByText(/Submission received/)).toBeVisible();
+      await expect(visitor.getByRole("heading", { name: "Submission received", exact: true })).toBeVisible();
       expect(await visitor.content()).not.toContain(details); expect(await visitor.content()).not.toContain(contact);
       expect(visitor.url()).toBe(`${apex}/api/reports`);
       const records = await evidence(sql => sql`select link_id,media_id,reporter_email,details from reports where target_username=${owner.username} and details=${details}`);

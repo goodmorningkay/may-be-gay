@@ -32,6 +32,14 @@ export async function readReportBody(request: Request): Promise<unknown> {
 }
 export function reportResponse(request: Request, accepted: boolean) {
   const message = accepted ? "Submission received. If the target is available, it will enter the review queue. This does not confirm a policy violation or guarantee a response." : "Unable to accept a report right now. Check the form and try again later.";
-  if (request.headers.get("content-type")?.startsWith("application/x-www-form-urlencoded")) return new Response(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Report submission</title><main><h1>Report submission</h1><p>${message}</p><p><a href="/support">Return to support</a></p></main></html>`, { status: accepted ? 202 : 400, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "referrer-policy": "no-referrer", "x-content-type-options": "nosniff" } });
+  if (request.headers.get("content-type")?.startsWith("application/x-www-form-urlencoded")) {
+    const title = accepted ? "Submission received" : "Unable to submit report";
+    const detail = accepted ? "If the target is still public, the report can enter the review queue." : "Check the form and try again later.";
+    const html = `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+      <title>Report submission · may-be.gay</title>
+      <style>html{color-scheme:dark;background:#121212;color:#fafafa;font:1rem/1.5 system-ui,sans-serif}body{margin:0 auto;padding:20px;max-width:70rem}header{padding:14px 0;border-bottom:1px solid #333;font-weight:700}main{max-width:36rem;margin:3rem auto;background:#191919;border:1px solid #4c4c4c;border-radius:16px;padding:24px}h1{margin:0;font-size:1.75rem}p{color:#b8b8b8}a{color:inherit}a:focus-visible{outline:3px solid currentColor;outline-offset:3px}</style>
+      <header><a href="/">may-be.gay</a></header><main><h1>${title}</h1><p>${detail}</p><a href="/support">Return to support</a></main></html>`;
+    return new Response(html, { status: accepted ? 202 : 400, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "referrer-policy": "no-referrer", "x-content-type-options": "nosniff" } });
+  }
   return accepted ? apiJson({ message }, 202) : apiJson({ error: { code: "REPORT_UNAVAILABLE", message } }, 400);
 }

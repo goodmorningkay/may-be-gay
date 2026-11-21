@@ -73,7 +73,6 @@ describe("public profile renderer", () => {
     expect(html).not.toContain("<nav");
     expect(html).toContain('<a href="https://may-be.gay">may-be.gay</a>');
     expect(html).toMatch(/href="https:\/\/may-be\.gay\/support"[^>]*>Report this page or get support<\/a>/);
-    expect(html).toContain("Report a page, link or uploaded file.");
   });
 
   it("derives platform links from the caller's apex domain, never the username", () => {

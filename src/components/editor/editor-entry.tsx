@@ -1,12 +1,14 @@
-/* eslint-disable @next/next/no-html-link-for-pages -- Full document navigation is consistent with the editor's pending-change protection. */
 "use client";
 import "@/components/validation-runtime";
 import { useEffect, useRef, useState } from "react";
 import { isValidUsername } from "@/domain/hosts";
 import { EditorRequestError, type EditorState } from "@/domain/editor";
 import { editorTransport, requestJson } from "./api";
+import { OnboardingScreen } from "../auth/onboarding-screen";
+import onboarding from "../auth/onboarding.module.css";
+import { SiteHeader } from "../site-chrome";
+import chrome from "../site-chrome.module.css";
 import { ProfileEditor } from "./profile-editor";
-import styles from "./editor.module.css";
 
 export function EditorEntry({ accountId, siteDomain, initialUsername = "" }: { accountId: string; siteDomain: string; initialUsername?: string }) {
   const [state, setState] = useState<EditorState | null>(null);
@@ -34,22 +36,32 @@ export function EditorEntry({ accountId, siteDomain, initialUsername = "" }: { a
     } catch (error) { if (mounted.current) { setProblem(error as EditorRequestError); setBusy(false); } }
   }
   if (state) return <ProfileEditor initial={state} siteDomain={siteDomain} />;
-  return <main className={styles.entry}>
-    <a href="/">may-be.gay</a><h1>{claim ? "A place with your name on it." : "Your private editor"}</h1>
-    {claim ? <form onSubmit={submit}>
-      <p>Choose your address. Usernames are fixed during beta, so take a moment to check yours. Claiming a name does not publish your page.</p>
-      <label htmlFor="claim-username">Username</label>
-      <div className={styles.addressInput}><input id="claim-username" autoComplete="off" autoCapitalize="none" spellCheck={false} required minLength={3} maxLength={30}
-        value={username} onChange={e => setUsername(e.target.value)} aria-describedby="username-help username-error" aria-invalid={Boolean(username && !isValidUsername(username))} /><span>.{siteDomain}</span></div>
-      <p id="username-help" className={styles.hint}>3–30 lowercase letters, digits or hyphens. Start and end with a letter or digit. Service names and the xn-- prefix are reserved.</p>
-      <p id="username-error" className={styles.fieldError}>{username && !isValidUsername(username) ? "Choose an available format before continuing. Availability is checked when you claim." : ""}</p>
-      <button className={styles.primary} disabled={busy || !isValidUsername(username)}>Claim this username</button>
-      <p className={styles.hint}>Your login email and authentication name stay private. You choose every public field in the editor.</p>
-    </form> : busy ? <p role="status">Loading your private draft…</p> : null}
-    {problem ? <div role="status"><p>{problem.message} <small>({problem.code})</small></p>
-      {problem.status === 401 ? <a href="/sign-in?returnTo=%2Feditor" target="_blank" rel="noopener noreferrer">Sign in in a new tab</a> : null}
-      {problem.code === "VERIFICATION_REQUIRED" ? <p><a href="/verify-email">Verify your email</a></p> : null}
-      <button type="button" disabled={busy} onClick={() => void load()}>Retry loading editor</button></div> : null}
-    <nav className={styles.inlineActions} aria-label="Account"><a href="/account/security">Security</a><a href="/account">Account</a></nav>
-  </main>;
+  const invalid = Boolean(username && !isValidUsername(username));
+  return <div className={chrome.page}><div className={chrome.container}>
+    <SiteHeader home={`https://${siteDomain}`}><a className={chrome.button} href="/account">Account</a></SiteHeader>
+    <main>
+      <OnboardingScreen title={claim ? "Claim your address" : "Your private editor"}
+        description={claim ? "Your username is fixed during beta. Your page starts as a private draft." : undefined}>
+        {problem && <div role="status" className={chrome.error}>
+          <p>{problem.code === "USERNAME_UNAVAILABLE" ? "That username is taken. Choose another." : problem.message}</p>
+          {problem.status === 401 && <a href="/sign-in?returnTo=%2Feditor" target="_blank" rel="noopener noreferrer">Sign in in a new tab</a>}
+          {problem.code === "VERIFICATION_REQUIRED" && <a href="/verify-email">Verify your email</a>}
+          {!claim && <button className={chrome.button} type="button" disabled={busy} onClick={() => void load()}>Retry loading editor</button>}
+        </div>}
+        {claim ? <form onSubmit={submit}>
+          <div className={chrome.field}>
+            <label htmlFor="claim-username">Username</label>
+            <span className={`${chrome.control} ${onboarding.usernameControl}`} aria-invalid={invalid || problem?.code === "USERNAME_UNAVAILABLE"}>
+              <input id="claim-username" autoComplete="off" autoCapitalize="none" spellCheck={false} required minLength={3} maxLength={30}
+                value={username} onChange={e => { setUsername(e.target.value); setProblem(null); }} aria-describedby="username-help"
+                aria-invalid={invalid || problem?.code === "USERNAME_UNAVAILABLE"} /><span aria-hidden="true">.{siteDomain}</span>
+            </span>
+          </div>
+          <small id="username-help">Use 3–30 lowercase letters, numbers or hyphens. Start and end with a letter or number. Service names and the xn-- prefix are reserved.</small>
+          <button className={chrome.primary} disabled={busy || !isValidUsername(username)}>Claim address</button>
+        </form> : busy ? <p role="status">Loading your private draft…</p> : null}
+        <nav className={onboarding.nav} aria-label="Account"><a href="/account/security">Security</a></nav>
+      </OnboardingScreen>
+    </main>
+  </div></div>;
 }

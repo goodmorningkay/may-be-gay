@@ -1,5 +1,7 @@
 "use client";
 import { useState, type FormEvent } from "react";
+import Link from "next/link";
+import chrome from "../site-chrome.module.css";
 import styles from "./operations.module.css";
 export function AccountPanel({ accountId }: { accountId: string }) {
   const [renderedAccountId] = useState(accountId);
@@ -30,6 +32,37 @@ export function AccountPanel({ accountId }: { accountId: string }) {
       setDeleted(true); setMessage(body.message);
     } catch (error) { setMessage(error instanceof Error ? error.message : "Unable to delete account."); } finally { setBusy(false); }
   }
-  return <><section className={styles.card}><h2>Download your account</h2><p>Includes your profile, private draft, retained revisions and available validated media. Keep the download private. Confirm your password first; exports are limited to two per hour.</p><form method="post" onSubmit={download}><button disabled={busy || deleted}>Download account archive (.tar)</button></form><noscript>Enable JavaScript to request the private account download.</noscript><p className={styles.muted}>If a file is removed or your access expires during download, the archive may be incomplete. Retry a fresh download. Large exports over 1 GiB need support assistance.</p></section>
-    <section className={`${styles.card} ${styles.danger}`}><h2>Delete your account</h2><p>This immediately removes your page and signs out every session. Private records and media are queued for removal within 24 hours when workers and storage are healthy. CDN cleanup and backup expiry may take longer. Your username remains reserved.</p><p><a href="/account/security">Confirm your password</a> before continuing. Download your archive first if you need a copy.</p><form method="post" onSubmit={remove}><label>Type DELETE MY ACCOUNT<input value={confirmation} onChange={e => setConfirmation(e.target.value)} autoComplete="off" maxLength={32} required disabled={deleted} /></label><button disabled={busy || deleted || confirmation !== "DELETE MY ACCOUNT"}>Delete my account</button></form></section><p role="status" className={message ? styles.notice : ""}>{busy ? action === "download" ? "Preparing your archive…" : "Requesting deletion…" : message}</p></>;
+  return <>
+    <section className={`${chrome.card} ${styles.accountCard}`} aria-labelledby="archive-title">
+      <div className={styles.archiveRow}>
+        <div>
+          <h2 className={chrome.subheading} id="archive-title">Download your account</h2>
+          <p className={chrome.muted}>Export your profile, private draft, retained revisions and available validated media.</p>
+          <Link href="/account/security#confirm-password">Confirm your password</Link>
+        </div>
+        <form action="/api/account/form-help" method="post" onSubmit={download}>
+          <button className={chrome.primary} disabled={busy || deleted}>Download account archive (.tar)</button>
+        </form>
+      </div>
+      <noscript>Enable JavaScript to request the private account download.</noscript>
+      <p className={`${chrome.muted} ${styles.cardDivider}`}>Keep the archive private. You can download up to two per hour. Exports over 1 GiB need support.</p>
+    </section>
+    <section className={`${chrome.card} ${styles.accountCard} ${styles.danger}`} aria-labelledby="deletion-title">
+      <h2 className={chrome.subheading} id="deletion-title">Delete your account</h2>
+      <p>Your page is removed immediately and all sessions are signed out. Your username stays reserved.</p>
+      <p className={chrome.muted}>Private records and media are queued for removal within 24 hours when workers and storage are healthy. Cached copies and backups can take longer to expire.</p>
+      <Link href="/account/security#confirm-password">Confirm your password</Link>
+      <p className={chrome.muted}>Download your archive first if you need a copy.</p>
+      <form className={`${styles.inlineForm} ${styles.cardDivider}`} action="/api/account/form-help" method="post" onSubmit={remove}>
+        <label className={chrome.field}><span>Type DELETE MY ACCOUNT</span>
+          <input className={chrome.control} value={confirmation} onChange={e => setConfirmation(e.target.value)} autoComplete="off" maxLength={32} required disabled={deleted} />
+        </label>
+        <button className={confirmation === "DELETE MY ACCOUNT" ? styles.dangerButton : chrome.button}
+          disabled={busy || deleted || confirmation !== "DELETE MY ACCOUNT"}>Delete my account</button>
+      </form>
+    </section>
+    <p role="status" className={message || busy ? chrome.notice : styles.emptyStatus}>
+      {busy ? action === "download" ? "Preparing your archive…" : "Requesting deletion…" : message}
+    </p>
+  </>;
 }

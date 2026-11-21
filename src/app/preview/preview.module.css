@@ -1,3 +1,10 @@
-.notice { padding: 1rem; background: #fffdf7; color: #252923; border-bottom: 1px solid #8e8b7b; text-align: center; font-family: system-ui, sans-serif; }
-.notice a { display: inline-block; padding: .5rem; color: #255ca2; }
-.notice a:focus-visible { outline: 3px solid currentColor; outline-offset: 3px; }
+.notice { min-height: 0; border-bottom: 1px solid var(--border-subtle); }
+.banner, .identity { display: flex; align-items: center; gap: 12px; }
+.banner { min-height: 86px; justify-content: space-between; }
+.identity strong { display: block; font: 700 25px/1.1 var(--display-font); letter-spacing: -.04em; }
+.identity p { margin: 4px 0 0; color: var(--text-secondary); font-size: 13px; }
+.lock { display: inline-block; flex: 0 0 44px; height: 44px; border: 1px solid var(--border-control); border-radius: var(--control-radius); background: url("../../components/profile-assets/private.svg") center no-repeat var(--control); }
+@media (max-width: 54rem) {
+  .banner { display: grid; padding-block: 15px; }
+  .identity strong { font-size: 22px; }
+}

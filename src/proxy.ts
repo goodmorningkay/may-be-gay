@@ -52,7 +52,14 @@ export async function proxy(request: NextRequest) {
       // performs its own public-only read; no document is passed in headers.
       try {
         if (!await getPublishedProfile(host.username)) {
-          response = new NextResponse("Page not found.", { status: 404 });
+          if (request.nextUrl.pathname === "/") {
+            const unavailable = request.nextUrl.clone();
+            unavailable.pathname = "/profile-unavailable";
+            unavailable.search = "";
+            response = NextResponse.rewrite(unavailable, { status: 404, request: { headers: requestHeaders } });
+          } else {
+            response = new NextResponse("Page not found.", { status: 404 });
+          }
         }
       } catch {
         console.error("Published profile lookup failed at the request boundary.");

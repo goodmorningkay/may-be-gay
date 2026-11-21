@@ -6,6 +6,8 @@ import { getSiteDomain } from "@/domain/hosts";
 import { getSession, requireUser } from "@/server/auth/session";
 import { assertAppHost } from "@/server/http";
 import { getProfilePreview } from "@/server/profile-editor";
+import Link from "next/link";
+import chrome from "@/components/site-chrome.module.css";
 import styles from "./preview.module.css";
 
 export const dynamic = "force-dynamic";
@@ -19,8 +21,14 @@ export default async function Preview() {
   const principal = await requireUser(requestHeaders);
   const profile = await getProfilePreview(principal);
   return <>
-    <aside className={styles.notice} aria-label="Private preview">
-      <strong>Private draft preview</strong> · Version {profile.editVersion}. Publishing is a separate action. <a href="/editor">Return to editor</a>
+    <aside className={`${chrome.page} ${styles.notice}`} aria-label="Private preview">
+      <div className={`${chrome.container} ${styles.banner}`}>
+        <div className={styles.identity}>
+          <span className={styles.lock} aria-hidden="true" />
+          <div><strong>Private draft preview</strong><p>Saved version {profile.editVersion} · Only you can see this draft.</p></div>
+        </div>
+        <Link className={chrome.button} href="/editor">Return to editor</Link>
+      </div>
     </aside>
     <ProfileView document={profile.document} username={profile.username} siteDomain={getSiteDomain()} media={profile.media} />
   </>;

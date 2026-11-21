@@ -18,6 +18,8 @@ test("homepage keeps the requested address through invite signup and verificatio
   await page.getByLabel("Password").fill(password);
   await page.getByRole("button", { name: "Create your account" }).click();
   await expect(page.getByRole("status")).toContainText("check your email");
+  await expect(page.getByRole("heading", { name: "Check your email" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Resend verification email" })).toHaveAttribute("href", `/verify-email?username=${username}`);
   await fixture("drain");
   const [mail] = await fixture("mail", email);
   await page.goto(mail.url);
@@ -35,8 +37,23 @@ test("homepage keeps the requested address through invite signup and verificatio
   await page.getByRole("button", { name: "Claim address" }).click();
   await expect(page).toHaveURL(`${app}/editor?username=${username}`);
   await expect(page.getByRole("textbox", { name: "Username" })).toHaveValue(username);
-  await page.getByRole("button", { name: "Claim this username" }).click();
+  await page.getByRole("button", { name: "Claim address" }).click();
   await expect(page.getByLabel("Display name", { exact: true })).toBeVisible();
+  await page.goto(`${app}/account/analytics`);
+  await expect(page.getByRole("heading", { name: "No activity recorded" })).toBeVisible();
+  await page.goto(`${apex}/examples`);
+  await expect(page.getByRole("heading", { name: "Explore a sample page" })).toBeVisible();
+  await page.getByLabel("Look", { exact: true }).selectOption("sunset");
+  await page.getByLabel("Layout", { exact: true }).selectOption("split");
+  await page.getByRole("button", { name: "Try this look" }).click();
+  await expect(page.locator("main")).toHaveAttribute("data-preset", "sunset");
+  await expect(page.locator("main")).toHaveAttribute("data-layout", "split");
+  await page.goto(`${apex}/privacy`);
+  await expect(page.getByRole("navigation", { name: "Policies" }).getByRole("link", { name: "Privacy" })).toHaveAttribute("aria-current", "page");
+  expectedErrors.push(/^Console: Failed to load resource: the server responded with a status of 404.*\[https:\/\/unknown\.may-be\.localhost\/\]$/);
+  const missing = await page.goto("https://unknown.may-be.localhost/");
+  expect(missing?.status()).toBe(404);
+  await expect(page.getByRole("link", { name: "Go to may-be.gay", exact: true })).toHaveAttribute("href", apex);
 });
 
 test("invited owners edit privately, upload real media, publish and remain isolated", async ({ page, context, browser, expectedErrors }, info) => {
@@ -184,6 +201,11 @@ test("invited owners edit privately, upload real media, publish and remain isola
     const analytics = await (await context.request.get(`${app}/api/account/analytics`)).json();
     expect(analytics.days.some((d: { views: number }) => d.views > 0)).toBe(true);
     expect(analytics.links.some((d: { clicks: number }) => d.clicks > 0)).toBe(true);
+    const analyticsPage = await context.newPage();
+    await analyticsPage.goto(`${app}/account/analytics`);
+    await expect(analyticsPage.getByRole("heading", { name: "Daily activity" })).toBeVisible();
+    await expect(analyticsPage.getByRole("region", { name: "Daily counts" }).getByRole("row")).toHaveCount(31);
+    await analyticsPage.close();
     expect((await state(sibling)).document.displayName).toBe("Other owner's private draft");
     const stableVisibleId = (await state(context)).document.links[1].id;
     await editorSection(page, "Links");

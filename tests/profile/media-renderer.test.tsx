@@ -36,6 +36,7 @@ describe("owned media renderer", () => {
     expect(html).toMatch(/<audio\b[^>]*controls=""[^>]*preload="none"/);
     expect(html).not.toMatch(/autoplay|<script\b|onclick=/i);
     expect(html).toContain('href="https://example.com/work"');
+    expect(html.indexOf("<audio")).toBeGreaterThan(html.indexOf("</nav>"));
     expect(html).toContain("Rights / attribution: &lt;b&gt;Example Music&lt;/b&gt;");
     // Native controls are the no-JS fallback; custom controls appear on hydration.
     expect(html).toContain('aria-label="Play music"');

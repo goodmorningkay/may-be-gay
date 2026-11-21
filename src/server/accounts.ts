@@ -3,7 +3,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import { isValidUsername } from "@/domain/hosts";
 import { defaultProfileDocument } from "@/domain/profile";
 import { getDatabase } from "./db";
-import { user, usernameClaims, profiles, profileDrafts, session } from "./db/schema";
+import { user, usernameClaims, profiles, profileDrafts, session, twoFactor } from "./db/schema";
 import { requireUser } from "./auth/session";
 import { AppError } from "./http";
 
@@ -33,4 +33,18 @@ export async function listAccountSessions(input: Request | Headers) {
 export async function revokeAccountSessions(input: Request | Headers, sessionId?: string) {
   const p = await requireUser(input, { recent: true });
   await getDatabase().delete(session).where(and(eq(session.userId, p.userId), sessionId ? eq(session.id, sessionId) : undefined));
+}
+
+/** Only the signed-in owner's display state is passed to the account screens. */
+export async function readAccountPresentation(ownerId: string) {
+  const [row] = await getDatabase().select({
+    username: usernameClaims.username,
+    enabled: user.twoFactorEnabled,
+    enrollmentId: twoFactor.id,
+  }).from(user)
+    .leftJoin(usernameClaims, and(eq(usernameClaims.ownerId, user.id), isNull(usernameClaims.retiredAt)))
+    .leftJoin(twoFactor, eq(twoFactor.userId, user.id))
+    .where(eq(user.id, ownerId));
+  const authenticator: "enabled" | "pending" | "off" = row?.enabled ? "enabled" : row?.enrollmentId ? "pending" : "off";
+  return { username: row?.username ?? undefined, authenticator };
 }

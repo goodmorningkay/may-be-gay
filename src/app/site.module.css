@@ -1,9 +1,12 @@
-.page { max-width: 76rem; margin: 0 auto; padding: clamp(1.25rem, 4vw, 3.5rem); }
-.content { max-width: 42rem; padding-block: 2rem; }
-.content h1 { font-family: Georgia, serif; font-size: 2.75rem; font-weight: 500; letter-spacing: -.03em; }
-.sampleBar { padding: 1rem clamp(1.25rem, 4vw, 3.5rem); border-bottom: 1px solid var(--border); }
-.sampleBar p { margin: .25rem 0; }
-.controls { display: flex; gap: 1rem; flex-wrap: wrap; align-items: end; padding-block: .5rem; }
-.controls label { display: grid; gap: .25rem; font-size: .875rem; }
-.controls select, .controls button { padding: .65rem .8rem; border: 1px solid #8e8276; border-radius: 4px; background: #fffdf7; color: #292622; }
-.controls button { cursor: pointer; font-weight: 600; }
+.sampleBar { min-height: 0; }
+.sampleSettings { display: flex; gap: 22px; align-items: end; justify-content: space-between; padding: 28px 0 24px; }
+.sampleSettings h2 { margin: 0; font: 700 clamp(28px, 3vw, 36px)/1.1 var(--display-font); letter-spacing: -.045em; }
+.sampleSettings p { margin: 4px 0 0; color: var(--text-secondary); }
+.controls { display: grid; grid-template-columns: repeat(3, minmax(105px, 130px)) auto; align-items: end; gap: 10px; }
+.missingPage { min-height: 100svh; display: grid; grid-template-rows: auto 1fr auto; }
+.missing { display: grid; align-content: center; justify-items: center; gap: 17px; padding-block: 54px; text-align: center; }
+.missing :is(p, span) { color: var(--text-secondary); margin: 0; }
+@media (max-width: 54rem) {
+  .sampleSettings { display: grid; grid-template-columns: minmax(0, 1fr); gap: 15px; padding-block: 20px; }
+  .controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

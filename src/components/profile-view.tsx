@@ -6,7 +6,9 @@ import { getPublicDocument, getThemeColors, linkUrlSchema, type ProfileDocument 
 
 import { MusicPlayer } from "./music-player";
 
+import "./brand.module.css";
 import styles from "./profile-view.module.css";
+import icons from "./profile-icons.module.css";
 
 type ProfileViewProps = {
   document: ProfileDocument;
@@ -41,7 +43,6 @@ function resolveMedia(media: PublicMediaMap, id: string | null | undefined, kind
 
 // Fixed inline paths; authored SVG/markup and external icon requests are forbidden.
 const iconPaths = {
-  website: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18ZM3 12h18M12 3c5 5 5 13 0 18-5-5-5-13 0-18Z",
   github: "M9 20c-5 1-5-3-7-3m14 5v-4c0-1-.3-2-1-2 4-.5 6-2 6-6 0-1-1-3-2-3 0-1 0-3-1-4-2 0-3 1-4 2h-4C8 4 7 3 5 3 4 4 4 6 4 7c-1 0-2 2-2 3 0 4 2 5.5 6 6-.7 0-1 1-1 2v4",
   instagram: "M7 3h10a4 4 0 0 1 4 4v10a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V7a4 4 0 0 1 4-4Zm9 9a4 4 0 1 1-8 0 4 4 0 0 1 8 0Zm1-6h1",
   mastodon: "M5 17V7a4 4 0 0 1 4-4h6a4 4 0 0 1 4 4v7c0 3-3 4-7 4H8c0 2 3 3 6 2M8 13V8l4 4 4-4v5",
@@ -53,7 +54,8 @@ const iconPaths = {
 };
 function SocialIcon({ name }: { name: NonNullable<ProfileDocument["links"][number]["icon"]> }) {
   return <span className={styles.socialIcon} aria-hidden="true" data-icon={name}>
-    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" focusable="false"><path d={iconPaths[name]} /></svg>
+    {name === "website" ? <span className={icons.website} /> :
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" focusable="false"><path d={iconPaths[name]} /></svg>}
   </span>;
 }
 
@@ -91,6 +93,7 @@ export function ProfileView({
       data-font={profile.theme.font}
       data-button={profile.theme.button}
       data-spacing={profile.theme.spacing}
+      data-photo={background ? "true" : undefined}
       data-overlay={background ? profile.theme.overlay : undefined}
       style={customStyle as React.CSSProperties | undefined}
     >
@@ -107,41 +110,40 @@ export function ProfileView({
             {profile.pronouns ? <p className={styles.pronouns}>{profile.pronouns}</p> : null}
             {profile.bio ? <p className={styles.bio}>{profile.bio}</p> : null}
             {profile.contact ? <p className={styles.contact}><a href={`mailto:${encodeURIComponent(profile.contact.email).replace(/%40/gi, "@")}`}>{profile.contact.email}</a></p> : null}
-            {music && profile.music ? <MusicPlayer url={music.url} attribution={profile.music.attribution} /> : null}
           </header>
 
-          {profile.links.length > 0 ? (
-            <nav aria-label="Profile links" className={styles.navigation}>
-              <ul className={styles.links}>
-                {profile.links.map((link) => (
-                  <li key={link.id}>
-                    <a className={styles.link} href={link.url} data-profile-link={link.id}>
-                      {link.icon ? <SocialIcon name={link.icon} /> : null}
-                      <span className={styles.linkText}>
-                        <span className={styles.linkLabel}>{link.label}</span>
-                        <span className={styles.linkHost}>{new URL(link.url).host}</span>
-                      </span>
-                      <span className={styles.arrow} aria-hidden="true">→</span>
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            </nav>
-          ) : (
-            <p className={styles.empty}>No public links yet.</p>
-          )}
+          <div className={styles.destinations}>
+            {profile.links.length > 0 ? (
+              <nav aria-label="Profile links">
+                <ul className={styles.links}>
+                  {profile.links.map((link) => (
+                    <li key={link.id}>
+                      <a className={styles.link} href={link.url} data-profile-link={link.id}>
+                        {link.icon ? <SocialIcon name={link.icon} /> : null}
+                        <span className={styles.linkText}>
+                          <span className={styles.linkLabel}>{link.label}</span>
+                          <span className={styles.linkHost}>{new URL(link.url).host}</span>
+                        </span>
+                        <span className={icons.arrow} aria-hidden="true">→</span>
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </nav>
+            ) : (
+              <p className={styles.empty}>No public links yet.</p>
+            )}
+            {music && profile.music && <MusicPlayer key={music.url} url={music.url} durationMs={music.durationMs} attribution={profile.music.attribution} />}
+          </div>
         </div>
 
         <footer className={styles.footer}>
           <p className={styles.attribution}>
             A page on <a href={origin}>{siteDomain}</a>
           </p>
-          <a className={styles.support} href={support.href}>
+          <a href={support.href}>
             Report this page or get support
           </a>
-          <p className={styles.supportNote}>
-            Report a page, link or uploaded file.
-          </p>
         </footer>
       </div>
     </main>

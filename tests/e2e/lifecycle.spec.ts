@@ -27,7 +27,12 @@ test("autosave races, stale tabs, failure recovery, history, report administrati
   await expect(stale.getByLabel("Bio", { exact: true })).toHaveValue("Retained local conflict");
   await action(stale, "Keep my input and replace server draft");
   expect((await state(context)).document.bio).toBe("Retained local conflict");
-  await page.reload(); await saved(page);
+  await Promise.all([
+    page.waitForResponse(response => response.url() === `${app}/api/media` && response.ok()),
+    page.reload(),
+  ]);
+  await saved(page);
+  await Promise.all([page, stale].map(tab => tab.evaluate(async () => { await document.fonts.ready; })));
   // A genuine transport failure and offline state, followed by deliberate retry.
   await context.setOffline(true);
   await page.getByLabel("Bio", { exact: true }).fill("Offline retained input");
@@ -116,7 +121,7 @@ test("autosave races, stale tabs, failure recovery, history, report administrati
   expect(tar.includes(Buffer.from("RIFF"))).toBe(true); expect(tar.includes(Buffer.from("original.mp3"))).toBe(true);
   for (const secret of [password, "session_token", "tokenHash", "objectKey", "local-only-e2e-auth-secret"]) expect(tar.includes(Buffer.from(secret)), secret).toBe(false);
   const report = await context.newPage(); await report.goto(`${apex}/support?username=lifecycle-a`);
-  await report.getByLabel("What should we review?", { exact: true }).fill("Private browser acceptance report details");
+  await report.getByLabel("Report details (optional)", { exact: true }).fill("Private browser acceptance report details");
   await report.getByLabel("Private reply email (optional)", { exact: true }).fill("reporter@example.invalid");
   await report.getByRole("button", { name: "Submit report", exact: true }).click();
   await expect(report.getByRole("status")).toContainText(/received/i); await report.close();
@@ -143,9 +148,17 @@ test("autosave races, stale tabs, failure recovery, history, report administrati
     await expect(admin.getByRole("button", { name: "Resolve", exact: true })).toBeVisible();
     await admin.getByRole("button", { name: "Resolve", exact: true }).click(); await expect(admin.getByRole("status")).toHaveText("Change saved.");
     await admin.getByLabel("Queue", { exact: true }).selectOption("resolved"); await expect(admin.getByRole("button", { name: "Read details", exact: true })).toBeVisible();
+    await admin.getByRole("button", { name: "Invites", exact: true }).click();
+    await admin.getByLabel("Recipient email", { exact: true }).fill("designed-invite@example.invalid");
+    await admin.getByRole("button", { name: "Create invitation link" }).click();
+    await expect(admin.getByRole("heading", { name: "Invitation ready" })).toBeVisible();
+    await admin.getByRole("button", { name: "Hide link" }).click();
+    await expect(admin.getByRole("heading", { name: "Invitation ready" })).toBeHidden();
+    await admin.getByRole("article").filter({ hasText: "designed-invite@example.invalid" }).getByRole("button", { name: "Revoke" }).click();
+    await expect(admin.getByRole("article").filter({ hasText: "designed-invite@example.invalid" })).toContainText("Revoked");
     await admin.goto(`${app}/account/security`); await admin.getByRole("button", { name: "Sign out", exact: true }).click();
     await signIn(admin, "lifecycle-admin@example.invalid"); await expect(admin).toHaveURL(`${app}/two-factor`);
-    await admin.getByLabel("Authenticator code", { exact: true }).fill(totp(secret)); await admin.getByRole("button", { name: "Confirm your sign-in", exact: true }).click();
+    await admin.getByLabel("Authenticator code", { exact: true }).fill(totp(secret)); await admin.getByRole("button", { name: "Verify code", exact: true }).click();
     await expect(admin).toHaveURL(`${app}/account/security`);
     await confirmPassword(admin);
     expect((await adminContext.request.get(`${app}/api/admin/reports`)).status()).toBe(200);
