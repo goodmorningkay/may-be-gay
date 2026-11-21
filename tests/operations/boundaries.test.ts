@@ -20,8 +20,10 @@ describe("operations input and privacy boundaries", () => {
     for (const data of [{ linkId: id, mediaId: id }, { details: "a".repeat(2001) }, { url: "http://internal/" }, { contact: "bad" }, { ownerId: "other" }]) expect(reportSchema.safeParse({ username: "alice", reason: "other", ...data }).success).toBe(false);
     const url = new URL(reportUrl("alice", { linkId: id }, "may-be.localhost")); expect(url.hostname).toBe("may-be.localhost"); expect(url.searchParams.get("linkId")).toBe(id);
   });
-  it("rejects public registration, role escalation, unknown actions and unsafe quotas", () => {
-    for (const body of [{ action: "promote", userId: "other" }, { action: "invite", email: "a@example.invalid", role: "admin" }, { action: "settings", registrationMode: "public", uploadsPaused: false, accountLimit: 50, totalMediaLimitBytes: 0 }, { action: "quota", userId: "other", bytes: -1 }]) expect(adminActionSchema.safeParse(body).success).toBe(false);
+  it("accepts public registration settings while rejecting role escalation and invalid settings", () => {
+    const settings = { action: "settings", registrationMode: "public", uploadsPaused: false, accountLimit: 50, totalMediaLimitBytes: 0 };
+    expect(adminActionSchema.safeParse(settings).success).toBe(true);
+    for (const body of [{ action: "promote", userId: "other" }, { action: "invite", email: "a@example.invalid", role: "admin" }, { ...settings, registrationMode: "unknown" }, { action: "quota", userId: "other", bytes: -1 }]) expect(adminActionSchema.safeParse(body).success).toBe(false);
     expect(deleteAccountSchema.safeParse({ confirmation: "DELETE MY ACCOUNT", ownerId: "other" }).success).toBe(false);
   });
   it("metrics permit only bounded event and stable link ID, never visitor metadata", () => {

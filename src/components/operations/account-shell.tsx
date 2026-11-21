@@ -16,7 +16,7 @@ export function AccountShell({ title, section, email, username, admin, children 
 }) {
   const domain = getSiteDomain();
   return <div className={chrome.page}><div className={chrome.container}>
-    <SiteHeader home={`https://${domain}`}><Link href="/editor" className={chrome.button}>Edit profile</Link></SiteHeader>
+    <SiteHeader home={`https://${domain}`}><Link href="/editor" prefetch={false} className={chrome.button}>Edit profile</Link></SiteHeader>
     <main>
       <div className={chrome.pageTitle}>
         <h1 className={chrome.heading}>{title}</h1>

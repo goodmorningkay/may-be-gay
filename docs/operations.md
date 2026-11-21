@@ -128,11 +128,12 @@ exists. All private pages are force-dynamic/noindex.
 { action: "suspend", userId: string, scope: "account"|"profile", suspended: boolean }
 { action: "remove-media", userId: string, mediaId: UUID }
 { action: "quota", userId: string, bytes: number /* integer 0..1 TiB */ }
-{ action: "settings", registrationMode: "closed"|"invite", uploadsPaused: boolean,
+{ action: "settings", registrationMode: "closed"|"invite"|"public", uploadsPaused: boolean,
   accountLimit: number /* integer 1..50 */, totalMediaLimitBytes: number /* integer 0..1 TiB */ }
 ```
 
-Public registration cannot be enabled. Invite issuance returns
+Public mode is the default for new installations. Existing installations can
+select **Public** under **Administration → Settings → Registration**. Invite issuance returns
 `{invite:{id,email,expiresAt,token}}` once. The UI shows its fragment link once,
 with an explicit Copy button; no copy/share/email happens automatically.
 Invitation creation/revocation uses a transactional facade over the existing

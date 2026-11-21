@@ -57,8 +57,8 @@ export async function confirmPassword(page: Page) {
 }
 export async function account(page: Page, username: string, admin = false) {
   const email = `${username}@example.invalid`;
-  const invite = await fixture("invite", email, ...(admin ? ["admin"] : []));
-  await page.goto(`${app}/sign-up#invite=${invite.token}`);
+  const invite = admin ? await fixture("invite", email, "admin") : undefined;
+  await page.goto(`${app}/sign-up${invite ? `#invite=${invite.token}` : ""}`);
   await expect(page).toHaveURL(`${app}/sign-up`);
   await page.getByLabel("Your name", { exact: true }).fill(`Private auth ${username}`);
   await page.getByLabel("Email", { exact: true }).fill(email);

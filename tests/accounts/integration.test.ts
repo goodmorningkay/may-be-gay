@@ -28,7 +28,7 @@ const password = "test account password 2048";
   function headers(cookie = "") { return new Headers({ host: "app.may-be.localhost", origin, "content-type": "application/json", cookie }); }
   function request(path: string, body?: unknown, cookie = "") { return new Request(`${origin}/api/auth${path}`, { method: body === undefined ? "GET" : "POST", headers: headers(cookie), ...(body === undefined ? {} : { body: JSON.stringify(body) }) }); }
   function cookie(response: Response) { return response.headers.getSetCookie().map(s => s.split(";", 1)[0]).join("; "); }
-  async function signup(email: string, token: string) { return handleAuth(request("/sign-up/email", { name: "Account", email, password, inviteToken: token, callbackURL: "/verify-email" })); }
+  async function signup(email: string, token?: string) { return handleAuth(request("/sign-up/email", { name: "Account", email, password, inviteToken: token, callbackURL: "/verify-email" })); }
   async function verified(email: string) {
     const invite = await issueInvite({ email });
     expect((await signup(email, invite.token)).status).toBe(202);
@@ -365,13 +365,26 @@ const password = "test account password 2048";
       await h.client.unsafe("DROP TRIGGER accounts_test_verification_failure ON verification; DROP FUNCTION accounts_test_fail_verification();");
     }
   });
-  it("blocks direct library signup, providers and missing invites", async () => {
+  it("blocks direct library signup, providers and signup without an invite in invitation mode", async () => {
     const direct = await createAccountAuth().handler(request("/sign-up/email", { name: "Bypass", email: "bypass@example.invalid", password }));
     // Library emits a generic synthetic response when a create hook returns 403.
     expect([200, 400, 403]).toContain(direct.status);
+    await h.db.insert(serviceSettings).values({ registrationMode: "invite" });
     expect((await handleAuth(request("/sign-up/email", { name: "Bypass", email: "bypass@example.invalid", password }))).status).toBe(400);
+    expect((await signup("no-invite@example.invalid")).status).toBe(400);
     expect((await handleAuth(request("/sign-in/social", { provider: "github" }))).status).toBe(404);
     expect(await h.db.select().from(user)).toHaveLength(0);
+    expect(await h.db.select().from(session)).toHaveLength(0);
+  });
+  it("creates an ordinary unverified account through public signup without an invitation", async () => {
+    const fields = { name: "Public account", email: "public@example.invalid", password, role: "admin", emailVerified: true };
+    const created = await handleAuth(request("/sign-up/email", { ...fields, callbackURL: "/verify-email" }));
+    expect(created.status).toBe(202);
+    const users = await h.db.select().from(user);
+    const mail = await h.db.select().from(jobs);
+    expect(users).toMatchObject([{ email: fields.email, role: "user", emailVerified: false }]);
+    expect(mail).toMatchObject([{ kind: "email", payload: { to: fields.email } }]);
+    expect(await h.db.select().from(invites)).toHaveLength(0);
     expect(await h.db.select().from(session)).toHaveLength(0);
   });
   it("rejects revoked, expired and wrong-email invitations", async () => {
@@ -403,16 +416,15 @@ const password = "test account password 2048";
     } finally { await h.client.unsafe("DROP TRIGGER accounts_test_fail ON invites; DROP FUNCTION accounts_test_fail_redemption();"); }
     expect((await signup(invite.email, invite.token)).status).toBe(202);
   });
-  it("serializes the final account slot and honors closed/public-disabled modes", async () => {
+  it("serializes the final public account slot and honors closed registration", async () => {
     await h.db.insert(serviceSettings).values({ id: true, accountLimit: 1 });
-    const a = await issueInvite({ email: "cap-a@example.invalid" }); const b = await issueInvite({ email: "cap-b@example.invalid" });
-    const results = await Promise.all([signup(a.email, a.token), signup(b.email, b.token)]);
+    const results = await Promise.all([signup("cap-a@example.invalid"), signup("cap-b@example.invalid")]);
     expect(results.map(r => r.status).sort()).toEqual([202, 400]);
     expect(await h.db.select().from(user)).toHaveLength(1);
     await h.db.update(serviceSettings).set({ registrationMode: "closed", accountLimit: 50 });
-    expect((await signup(b.email, b.token)).status).toBe(400);
+    expect((await signup("cap-c@example.invalid")).status).toBe(400);
     await h.db.update(serviceSettings).set({ registrationMode: "public" });
-    expect((await signup(b.email, b.token)).status).toBe(400);
+    expect((await signup("cap-c@example.invalid")).status).toBe(202);
   });
   it("enforces the hard 50-account cap even with a larger configured limit", async () => {
     await h.db.insert(serviceSettings).values({ id: true, accountLimit: 100 });

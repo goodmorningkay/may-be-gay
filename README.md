@@ -2,9 +2,9 @@
 
 # may-be.gay
 
-A free, expressive profile-page service, starting with an invite-only beta.
+A free, expressive profile-page service with public signup.
 
-The local application includes invite-gated accounts, a complete profile editor,
+The local application includes email-verified accounts, a complete profile editor,
 six presets, private media processing, publication history, reporting and
 administration, account export/deletion, durable workers and encrypted recovery.
 Local acceptance and independent review are tracked in the implementation record.

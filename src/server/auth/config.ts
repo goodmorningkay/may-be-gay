@@ -25,7 +25,7 @@ function configureAccountAuth(db: ReturnType<typeof getDatabase> | Transaction, 
     // Better Call otherwise logs raw non-API failures, including SQL bind values,
     // even when Better Auth's logger is disabled. Our HTTP facade redacts errors.
     onAPIError: { throw: true },
-    // Signup is already inside the invitation admission transaction. Ordinary
+    // Signup is already inside the admission transaction. Ordinary
     // credential operations need the adapter transaction for complete rollback.
     database: drizzleAdapter(db, { provider: "pg", schema, transaction: transactions }),
     emailAndPassword: {

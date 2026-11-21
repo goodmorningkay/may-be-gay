@@ -1,10 +1,9 @@
 import { test, expect, account, app, apex, fixture, password, saved, state, publish, observeContext, editorSection } from "./helpers";
 
-test("homepage keeps the requested address through invite signup and verification", async ({ page, expectedErrors }, info) => {
+test("homepage keeps the requested address through public signup and verification", async ({ page, expectedErrors }, info) => {
   expectedErrors.push(/^Console: Failed to load resource: the server responded with a status of 404.*\[https:\/\/app\.may-be\.localhost\/api\/profile\]$/);
   const username = `${info.project.name}-homepage`;
   const email = `${username}@example.invalid`;
-  const invite = await fixture("invite", email);
 
   await page.goto(apex);
   await expect(page.getByRole("link", { name: "Log in" })).toHaveAttribute("href", `${app}/sign-in`);
@@ -12,8 +11,11 @@ test("homepage keeps the requested address through invite signup and verificatio
   await page.getByRole("button", { name: "Claim address" }).click();
   await expect(page).toHaveURL(`${app}/sign-up?username=${username}`);
 
+  await expect(page.getByRole("link", { name: "Privacy notice" })).toHaveAttribute("href", `${apex}/privacy`);
+  await expect(page.getByLabel("Date of birth", { exact: true })).toHaveCount(0);
+
   await page.getByLabel("Your name").fill("Homepage test account");
-  await page.getByLabel("Invitation token").fill(invite.token);
+  await expect(page.getByLabel("Invitation token")).toHaveCount(0);
   await page.getByLabel("Email", { exact: true }).fill(email);
   await page.getByLabel("Password").fill(password);
   await page.getByRole("button", { name: "Create your account" }).click();
@@ -39,6 +41,8 @@ test("homepage keeps the requested address through invite signup and verificatio
   await expect(page.getByRole("textbox", { name: "Username" })).toHaveValue(username);
   await page.getByRole("button", { name: "Claim address" }).click();
   await expect(page.getByLabel("Display name", { exact: true })).toBeVisible();
+  await expect(page.frameLocator('iframe[title^="Private local profile preview"]').locator("main")).toHaveCount(1);
+  await Promise.all(page.frames().map(frame => frame.evaluate(async () => { await document.fonts.ready; })));
   await page.goto(`${app}/account/analytics`);
   await expect(page.getByRole("heading", { name: "No activity recorded" })).toBeVisible();
   await page.goto(`${apex}/examples`);
@@ -50,13 +54,14 @@ test("homepage keeps the requested address through invite signup and verificatio
   await expect(page.locator("main")).toHaveAttribute("data-layout", "split");
   await page.goto(`${apex}/privacy`);
   await expect(page.getByRole("navigation", { name: "Policies" }).getByRole("link", { name: "Privacy" })).toHaveAttribute("aria-current", "page");
+  await expect(page.getByText("Kay", { exact: true })).toBeVisible();
   expectedErrors.push(/^Console: Failed to load resource: the server responded with a status of 404.*\[https:\/\/unknown\.may-be\.localhost\/\]$/);
   const missing = await page.goto("https://unknown.may-be.localhost/");
   expect(missing?.status()).toBe(404);
   await expect(page.getByRole("link", { name: "Go to may-be.gay", exact: true })).toHaveAttribute("href", apex);
 });
 
-test("invited owners edit privately, upload real media, publish and remain isolated", async ({ page, context, browser, expectedErrors }, info) => {
+test("owners edit privately, upload real media, publish and remain isolated", async ({ page, context, browser, expectedErrors }, info) => {
   // Username onboarding intentionally reads a profile before the claim exists.
   expectedErrors.push(/^Console: Failed to load resource: the server responded with a status of 404.*\[https:\/\/app\.may-be\.localhost\/api\/profile\]$/);
   console.log(`ENGINE ${info.project.name}: ${browser.version()}`);

@@ -1,10 +1,11 @@
 import { sql } from "drizzle-orm";
 import { bigint, boolean, check, integer, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { defaultRegistrationMode, registrationModes } from "../../domain/registration";
 import { user } from "./schema";
 
 export const serviceSettings = pgTable("service_settings", {
   id: boolean("id").primaryKey().default(true),
-  registrationMode: text("registration_mode").notNull().default("invite"),
+  registrationMode: text("registration_mode", { enum: registrationModes }).notNull().default(defaultRegistrationMode),
   uploadsPaused: boolean("uploads_paused").notNull().default(false),
   accountLimit: integer("account_limit").notNull().default(50),
   totalMediaLimitBytes: bigint("total_media_limit_bytes", { mode: "number" }).notNull().default(5 * 1024 ** 3),

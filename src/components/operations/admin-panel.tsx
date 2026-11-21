@@ -1,13 +1,14 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import type { RegistrationMode } from "@/domain/registration";
 import chrome from "../site-chrome.module.css";
 import styles from "./operations.module.css";
 
 type Row = Record<string, string | number | boolean | null>;
 type Data = {
   rows?: Row[];
-  settings?: { registrationMode: string; uploadsPaused: boolean; accountLimit: number; totalMediaLimitBytes: number };
+  settings?: { registrationMode: RegistrationMode; uploadsPaused: boolean; accountLimit: number; totalMediaLimitBytes: number };
 };
 const sections = { reports: "Reports", accounts: "Accounts", invites: "Invites", settings: "Settings", audit: "Audit" } as const;
 type Section = keyof typeof sections;
@@ -208,7 +209,7 @@ export function AdminPanel({ initial }: { initial: Data }) {
       {section === "settings" && data.settings && <form method="post" action="/api/account/form-help" className={`${chrome.card} ${chrome.stack}`} key={JSON.stringify(data.settings)}
         onSubmit={e => form(e, f => ({ action: "settings", registrationMode: f.get("registrationMode"), uploadsPaused: f.get("uploadsPaused") === "on", accountLimit: Number(f.get("accountLimit")), totalMediaLimitBytes: Number(f.get("totalMediaLimitBytes")) }))}>
         <h3 className={styles.smallHeading}>Service limits</h3>
-        <label className={chrome.field}><span>Registration</span><select className={chrome.control} name="registrationMode" defaultValue={data.settings.registrationMode === "closed" ? "closed" : "invite"}><option value="closed">Closed</option><option value="invite">Invitation required</option></select></label>
+        <div className={chrome.field}><label htmlFor="registration-mode">Registration</label><select id="registration-mode" className={chrome.control} name="registrationMode" defaultValue={data.settings.registrationMode}><option value="closed">Closed</option><option value="invite">Invitation required</option><option value="public">Public</option></select></div>
         <label><input type="checkbox" name="uploadsPaused" defaultChecked={data.settings.uploadsPaused} /> Pause new uploads</label>
         <label className={chrome.field}><span>Account limit (maximum 50)</span><input className={chrome.control} type="number" name="accountLimit" min={1} max={50} defaultValue={data.settings.accountLimit} required /></label>
         <label className={chrome.field}><span>Total storage limit in bytes</span><input className={chrome.control} type="number" name="totalMediaLimitBytes" min={0} max={1024 ** 4} defaultValue={data.settings.totalMediaLimitBytes} required /></label>

@@ -8,7 +8,7 @@ import { handleFactorRequest } from "./factors";
 import { getDatabase } from "../db";
 import { user, account, twoFactor } from "../db/schema";
 import { sessionAssurance } from "../db/schema-accounts";
-import { lockInviteAdmission, consumeInvite, normalizeEmail } from "../invites";
+import { lockSignupAdmission, consumeInvite, normalizeEmail } from "../invites";
 import { AppError, apiError, apiJson, appOrigin, assertAppHost, assertLocalRedirect, assertMutationOrigin, readJson } from "../http";
 import { authRequestLimit } from "../rate-limit";
 
@@ -57,21 +57,23 @@ export async function handleAuth(request: Request): Promise<Response> {
     // Better Auth must not derive identity/rate keys/base URLs from spoofed proxy headers.
     for (const name of ["x-forwarded-for", "x-real-ip", "cf-connecting-ip", "forwarded", "x-forwarded-host", "x-forwarded-proto"]) forwarded.delete(name);
     forwarded.delete("content-length");
-    const authRequest = () => new Request(url, { method: request.method, headers: forwarded, ...(body ? { body: JSON.stringify(body) } : {}) });
+    const authRequest = (data = body) => new Request(url, { method: request.method, headers: forwarded, ...(data ? { body: JSON.stringify(data) } : {}) });
     let response: Response;
     if (path === "/sign-up/email") {
-      const signup = z.object({ email: z.email(), password: z.string().min(12).max(128), name: z.string().trim().min(1).max(100), inviteToken: z.string().max(128) }).safeParse(body);
+      const signup = z.object({ email: z.email(), password: z.string().min(12).max(128), name: z.string().trim().min(1).max(100),
+        inviteToken: z.string().max(128).optional(), callbackURL: z.string().optional() }).safeParse(body);
       if (!signup.success) throw new AppError(400, "REGISTRATION_UNAVAILABLE", "Unable to create an account with these details.");
       response = await getDatabase().transaction(async tx => {
-        const invite = await lockInviteAdmission(tx, signup.data.email, signup.data.inviteToken);
-        const admission = { email: signup.data.email, created: false };
+        const { email, name, password, inviteToken, callbackURL } = signup.data;
+        const invite = await lockSignupAdmission(tx, email, inviteToken);
+        const admission = { email, created: false };
         const auth = createAccountAuthInTransaction(tx, admission);
-        const result = await auth.handler(authRequest());
+        const result = await auth.handler(authRequest({ email, name, password, callbackURL }));
         if (!result.ok || !admission.created) throw new AppError(400, "REGISTRATION_UNAVAILABLE", "Unable to create an account with these details.");
         const [created] = await tx.select({ id: user.id }).from(user).innerJoin(account, and(eq(account.userId, user.id), eq(account.providerId, "credential")))
-          .where(and(eq(user.email, signup.data.email), eq(user.emailVerified, false), isNull(user.deletedAt)));
+          .where(and(eq(user.email, email), eq(user.emailVerified, false), isNull(user.deletedAt)));
         if (!created) throw new Error("Signup did not create credential owner");
-        await consumeInvite(tx, invite.id, created.id);
+        if (invite) await consumeInvite(tx, invite.id, created.id);
         // A commit error still rejects this function; no response/cookie escapes before commit.
         return result;
       });

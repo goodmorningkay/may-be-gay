@@ -47,7 +47,7 @@ export async function PolicyPage({ kind }: { kind: "privacy" | "terms" | "rules"
         <section className={`${chrome.card} ${styles.operator}`}>
           <h2>Operator and audience</h2>
           <dl>
-            <div><dt>Operator identity</dt><dd>{values.operator ?? "Pending"}</dd></div>
+            <div><dt>Operator identity</dt><dd>{kind === "privacy" ? "Kay" : (values.operator ?? "Pending")}</dd></div>
             <div><dt>Jurisdiction</dt><dd>{values.jurisdiction ?? "Pending"}</dd></div>
             <div><dt>Audience and minimum age</dt><dd>{values.audience ?? "Pending"}</dd></div>
             <div><dt>Monitored support contact</dt><dd>{contact ? <a href={`mailto:${contact}`}>{contact}</a> : "Pending"}</dd></div>

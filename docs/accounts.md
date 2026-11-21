@@ -73,15 +73,14 @@ route. Never expose its handler or mutation methods directly.
 Signup proceeds as follows:
 
 1. Check Host, exact mutation Origin, local redirects, bounded JSON and persistent
-   rate limits. Require name, normalized email, 12–128 character password and
-   invitation token. No submitted role or verification flag is authoritative.
+   rate limits. Require name, normalized email and a 12–128 character password.
+   The server assigns the account role and verification state.
 2. Start a PostgreSQL transaction. Insert the singleton service settings if
-   absent and lock `id=true FOR UPDATE`. Accept only invite mode; **closed and
-   public modes both deny registration**. Public signup has no enable switch in
-   this implementation. Count all existing accounts under that lock, enforcing
-   `min(accountLimit, 50)`.
-3. Lock the invitation matched by token hash AND normalized email, requiring
-   unexpired, nonrevoked and unredeemed status.
+   absent and lock `id=true FOR UPDATE`. Closed mode denies registration. Count
+   existing accounts under the lock and enforce `min(accountLimit, 50)`.
+3. If an invitation is supplied, or invitation mode requires one, lock the
+   invitation matched by token hash and normalized email. It must be unexpired,
+   nonrevoked and unredeemed.
 4. Instantiate Better Auth with a Drizzle adapter bound to that exact transaction
    and `transaction:false`. This prevents a separate library commit: the adapter
    still executes all its writes through the outer transaction. Its user-create
@@ -171,8 +170,9 @@ and address headers are removed before invoking Better Auth.
   library's server-only password endpoint, with explicit Host, Origin, bounded
   strict schema and persistent rate checks. This renews password assurance only,
   never second-factor assurance. No callback fields are accepted.
-- POST `/api/auth/sign-up/email`: `{ name, email, password, inviteToken,
-  callbackURL? }`; generic accepted response (202), no created-user projection.
+- POST `/api/auth/sign-up/email`: `{ name, email, password, inviteToken?,
+  callbackURL? }`. Public mode accepts signup without an invitation. Invitation
+  mode requires `inviteToken`. Acceptance returns 202.
 - POST auth endpoints allowed: `/sign-in/email`, `/sign-out`,
   `/send-verification-email`, `/request-password-reset`, `/reset-password`,
   `/change-password`, `/two-factor/enable`, `/two-factor/disable`,
@@ -206,7 +206,8 @@ production/development cookie fallback.
 `src/server/invites.ts` exports `normalizeEmail`, `hashInviteToken`,
 `issueInvite({ email, createdBy?, expiresInHours?, sendEmail?, bootstrap? })`,
 `listInvites(limit = 100)`, `revokeInvite(id)`, and the internal transaction helpers
-`lockInviteAdmission(tx, email, token)` / `consumeInvite(tx, inviteId, userId)`.
+`lockSignupAdmission(tx, email, inviteToken?)` and
+`consumeInvite(tx, inviteId, userId)`.
 Administrative callers **must first call requireAdmin**; these are server-only
 services, not independently exposed routes. Do not spread an unvalidated public
 request into service options. `bootstrap` is reserved for the operator CLI.

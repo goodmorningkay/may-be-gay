@@ -2,6 +2,7 @@ import "server-only";
 import { createHash, randomBytes } from "node:crypto";
 import { and, eq, gt, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
+import { defaultRegistrationMode } from "@/domain/registration";
 import { getDatabase } from "./db";
 import type { Transaction } from "./db/types";
 import { invites, user } from "./db/schema";
@@ -35,16 +36,22 @@ export async function revokeInvite(id: string) {
   // Conditional update serializes with the signup row lock.
   await getDatabase().update(invites).set({ revokedAt: new Date() }).where(and(eq(invites.id, id), isNull(invites.redeemedAt), isNull(invites.revokedAt)));
 }
-/** Held from eligibility through Better Auth handler and final redemption. */
-export async function lockInviteAdmission(tx: Transaction, email: string, token: string) {
+export async function readRegistrationMode() {
+  const [settings] = await getDatabase().select({ mode: serviceSettings.registrationMode }).from(serviceSettings).where(eq(serviceSettings.id, true));
+  return settings?.mode ?? defaultRegistrationMode;
+}
+
+/** Hold the settings lock through account creation and any invite redemption. */
+export async function lockSignupAdmission(tx: Transaction, email: string, inviteToken?: string) {
   await tx.insert(serviceSettings).values({ id: true }).onConflictDoNothing();
   const [settings] = await tx.select().from(serviceSettings).where(eq(serviceSettings.id, true)).for("update");
-  // Public mode remains disabled, including when an operator accidentally selects it.
-  if (settings.registrationMode !== "invite") throw unavailable();
+  if (settings.registrationMode === "closed") throw unavailable();
+
   const [count] = await tx.select({ n: sql<number>`count(*)::int` }).from(user);
   if (count.n >= Math.min(settings.accountLimit, 50)) throw unavailable();
-  if (!/^[a-zA-Z0-9_-]{43}$/.test(token)) throw unavailable();
-  const [invite] = await tx.select().from(invites).where(and(eq(invites.tokenHash, hashInviteToken(token)), eq(invites.email, email), isNull(invites.revokedAt), isNull(invites.redeemedAt), gt(invites.expiresAt, new Date()))).for("update");
+  if (settings.registrationMode === "public" && inviteToken === undefined) return;
+  if (!inviteToken || !/^[a-zA-Z0-9_-]{43}$/.test(inviteToken)) throw unavailable();
+  const [invite] = await tx.select({ id: invites.id }).from(invites).where(and(eq(invites.tokenHash, hashInviteToken(inviteToken)), eq(invites.email, email), isNull(invites.revokedAt), isNull(invites.redeemedAt), gt(invites.expiresAt, new Date()))).for("update");
   if (!invite) throw unavailable();
   return invite;
 }

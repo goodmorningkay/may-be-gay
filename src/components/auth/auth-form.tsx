@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
+import type { RegistrationMode } from "@/domain/registration";
 import { withClaimUsername } from "@/domain/username-intent";
 import chrome from "../site-chrome.module.css";
 import styles from "./onboarding.module.css";
@@ -26,8 +26,8 @@ const copy = {
   "two-factor": { title: "Confirm your sign-in", action: "Verify code" },
 } satisfies Record<Mode, { title: string; action: string }>;
 
-export function AuthForm({ mode, verificationStatus, claimUsername, siteDomain = "may-be.gay" }: {
-  mode: Mode; verificationStatus?: "success" | "error"; claimUsername?: string; siteDomain?: string;
+export function AuthForm({ mode, verificationStatus, claimUsername, siteDomain = "may-be.gay", registrationMode }: {
+  mode: Mode; verificationStatus?: "success" | "error"; claimUsername?: string; siteDomain?: string; registrationMode?: RegistrationMode;
 }) {
   const [message, setMessage] = useState(verificationStatus === "error" ? "This verification link is invalid or expired." : "");
   const [failure, setFailure] = useState(verificationStatus === "error");
@@ -35,17 +35,20 @@ export function AuthForm({ mode, verificationStatus, claimUsername, siteDomain =
   const [busy, setBusy] = useState(false);
   const [recovery, setRecovery] = useState(false);
   const inviteInput = useRef<HTMLInputElement>(null);
-  const router = useRouter();
+  const linkInvite = useRef<string | undefined>(undefined);
   const signIn = withClaimUsername("/sign-in", claimUsername);
   const signedInPath = claimUsername ? withClaimUsername("/editor", claimUsername) : "/account/security";
   const verificationPath = withClaimUsername("/verify-email?verified=1", claimUsername);
   const address = claimUsername ? `${claimUsername}.${siteDomain}` : undefined;
+  const publicSignup = mode === "sign-up" && registrationMode === "public";
+  const privacyLink = <Link href={`https://${siteDomain}/privacy`} prefetch={false}>Privacy notice</Link>;
 
   useEffect(() => {
     if (mode !== "sign-up") return;
     const token = new URLSearchParams(window.location.hash.slice(1)).get("invite");
-    if (token && inviteInput.current) {
-      inviteInput.current.value = token;
+    if (token) {
+      linkInvite.current = token;
+      if (inviteInput.current) inviteInput.current.value = token;
       history.replaceState(null, "", window.location.pathname + window.location.search);
     }
   }, [mode]);
@@ -60,10 +63,13 @@ export function AuthForm({ mode, verificationStatus, claimUsername, siteDomain =
     try {
       if (mode === "sign-in") {
         const data = await accountRequest("/api/auth/sign-in/email", { ...fields, callbackURL: signedInPath });
-        router.push(data.twoFactorRedirect ? withClaimUsername("/two-factor", claimUsername) : signedInPath);
-        router.refresh();
+        window.location.assign(data.twoFactorRedirect ? withClaimUsername("/two-factor", claimUsername) : signedInPath);
       } else if (mode === "sign-up") {
-        await accountRequest("/api/auth/sign-up/email", { ...fields, callbackURL: verificationPath });
+        await accountRequest("/api/auth/sign-up/email", {
+          ...fields,
+          ...(publicSignup && linkInvite.current ? { inviteToken: linkInvite.current } : {}),
+          callbackURL: verificationPath,
+        });
         setMessage("If eligible, check your email for the verification link, then sign in.");
         setComplete(true);
       } else if (mode === "verify-email") {
@@ -81,8 +87,7 @@ export function AuthForm({ mode, verificationStatus, claimUsername, siteDomain =
         setComplete(true);
       } else {
         await accountRequest(`/api/auth/two-factor/${recovery ? "verify-backup-code" : "verify-totp"}`, { code: fields.code });
-        router.push(signedInPath);
-        router.refresh();
+        window.location.assign(signedInPath);
       }
     } catch (error) {
       setFailure(true);
@@ -108,14 +113,20 @@ export function AuthForm({ mode, verificationStatus, claimUsername, siteDomain =
     </OnboardingScreen>;
   }
 
+  if (mode === "sign-up" && registrationMode === "closed") {
+    return <OnboardingScreen title="Registration is closed" address={address}>
+      <Link className={chrome.button} href={signIn}>Sign in</Link>
+    </OnboardingScreen>;
+  }
+
   return <OnboardingScreen title={copy[mode].title} address={address}
-    description={mode === "sign-up" ? "Use the email address your invitation was sent to." : undefined}>
+    description={mode === "sign-up" && !publicSignup ? "Use the email address your invitation was sent to." : undefined}>
     <noscript>Enable JavaScript to use account forms. Submitted credentials are never added to the address.</noscript>
     <p role="status" className={failure ? chrome.error : undefined}>{message}</p>
     <form action="/api/account/form-help" method="post" onSubmit={submit}>
       {mode === "sign-up" && <>
         <label className={chrome.field}><span>Your name</span><input className={chrome.control} name="name" required maxLength={100} autoComplete="name" /></label>
-        <label className={chrome.field}><span>Invitation token</span><input className={chrome.control} name="inviteToken" ref={inviteInput} required maxLength={128} autoComplete="off" /></label>
+        {!publicSignup && <label className={chrome.field}><span>Invitation token</span><input className={chrome.control} name="inviteToken" ref={inviteInput} required maxLength={128} autoComplete="off" /></label>}
       </>}
       {mode !== "reset-password" && mode !== "two-factor" &&
         <label className={chrome.field}><span>Email</span><input className={chrome.control} name="email" type="email" required maxLength={254} autoComplete="email" /></label>}
@@ -135,8 +146,8 @@ export function AuthForm({ mode, verificationStatus, claimUsername, siteDomain =
         {recovery ? "Use authenticator" : "Use a recovery code"}
       </button>}
     </form>
-    {mode === "sign-in" && <nav className={styles.nav} aria-label="Account">New here? <Link href={withClaimUsername("/sign-up", claimUsername)}>Use an invitation</Link></nav>}
-    {mode === "sign-up" && <nav className={styles.nav} aria-label="Account">Already have an account? <Link href={signIn}>Sign in</Link></nav>}
+    {mode === "sign-in" && <nav className={styles.nav} aria-label="Account">New here? <Link href={withClaimUsername("/sign-up", claimUsername)}>Create an account</Link></nav>}
+    {mode === "sign-up" && <nav className={styles.nav} aria-label="Account">{privacyLink}<Link href={signIn}>Sign in</Link></nav>}
     {(mode === "verify-email" || mode === "forgot-password") && <nav className={styles.nav} aria-label="Account"><Link href={signIn}>{mode === "verify-email" ? "Sign in" : "Back to sign in"}</Link></nav>}
   </OnboardingScreen>;
 }

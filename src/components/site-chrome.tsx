@@ -29,6 +29,6 @@ export function SectionLinks({ items, current, label }: {
   items: readonly { href: string; label: string }[]; current: string; label: string;
 }) {
   return <nav className={styles.sideNav} aria-label={label}>
-    {items.map(item => <Link key={item.href} href={item.href} aria-current={item.href === current ? "page" : undefined}>{item.label}</Link>)}
+    {items.map(item => <Link key={item.href} href={item.href} prefetch={false} aria-current={item.href === current ? "page" : undefined}>{item.label}</Link>)}
   </nav>;
 }

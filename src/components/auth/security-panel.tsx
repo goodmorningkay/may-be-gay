@@ -62,7 +62,7 @@ export function SecurityPanel({ accountId, email, initial, initialSessions }: {
     <p role="status" className={message ? chrome.notice : styles.emptyStatus}>{message}</p>
     {!username && <section className={`${chrome.card} ${chrome.stack}`}>
       <h2 className={chrome.subheading}>Choose your username</h2>
-      <p className={chrome.muted}>Your username is fixed during beta. Use 3–30 lowercase letters, digits or hyphens.</p>
+      <p className={chrome.muted}>Your username is fixed after you claim it. Use 3–30 lowercase letters, digits or hyphens.</p>
       <form className={styles.inlineForm} action={formHelp} method="post" onSubmit={form(async fields => {
         const data = await accountRequest("/api/account/username", fields);
         setUsername(data.username);

@@ -11,7 +11,7 @@ export async function proxy(request: NextRequest) {
   const development = process.env.NODE_ENV === "development";
   // Public assets use the one configured media origin, never an authored URL.
   const mediaOrigin = `https://media.${domain}`;
-  // The homepage's username form redirects from the apex to invite signup.
+  // The homepage's username form redirects from the apex to signup.
   const signupTarget = host.kind === "apex" && request.nextUrl.pathname === "/" ? ` https://app.${domain}/sign-up` : "";
   const csp = [
     "default-src 'none'",

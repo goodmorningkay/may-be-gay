@@ -41,7 +41,7 @@ export function EditorEntry({ accountId, siteDomain, initialUsername = "" }: { a
     <SiteHeader home={`https://${siteDomain}`}><a className={chrome.button} href="/account">Account</a></SiteHeader>
     <main>
       <OnboardingScreen title={claim ? "Claim your address" : "Your private editor"}
-        description={claim ? "Your username is fixed during beta. Your page starts as a private draft." : undefined}>
+        description={claim ? "Your username is fixed after you claim it. Your page starts as a private draft." : undefined}>
         {problem && <div role="status" className={chrome.error}>
           <p>{problem.code === "USERNAME_UNAVAILABLE" ? "That username is taken. Choose another." : problem.message}</p>
           {problem.status === 401 && <a href="/sign-in?returnTo=%2Feditor" target="_blank" rel="noopener noreferrer">Sign in in a new tab</a>}

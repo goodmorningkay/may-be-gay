@@ -3,6 +3,7 @@ import { randomBytes } from "node:crypto";
 import { and, desc, eq, ilike, isNull, or } from "drizzle-orm";
 import { z } from "zod";
 import { adminActionSchema } from "@/domain/operations";
+import { defaultRegistrationMode } from "@/domain/registration";
 import { requireAdmin } from "@/server/auth/session";
 import { getDatabase } from "@/server/db";
 import { accountQuotas, serviceSettings } from "@/server/db/schema-settings";
@@ -40,7 +41,7 @@ export async function readAdmin(input: Request | Headers, resource: string, url 
     }
     if (resource === "settings") {
       const [settings] = await tx.select({ registrationMode: serviceSettings.registrationMode, uploadsPaused: serviceSettings.uploadsPaused, accountLimit: serviceSettings.accountLimit, totalMediaLimitBytes: serviceSettings.totalMediaLimitBytes }).from(serviceSettings).where(eq(serviceSettings.id, true));
-      return { settings: settings ?? { registrationMode: "invite", uploadsPaused: false, accountLimit: 50, totalMediaLimitBytes: 5 * 1024 ** 3 } };
+      return { settings: settings ?? { registrationMode: defaultRegistrationMode, uploadsPaused: false, accountLimit: 50, totalMediaLimitBytes: 5 * 1024 ** 3 } };
     }
     if (resource === "audit") return { rows: await tx.select({ id: auditEvents.id, actorId: auditEvents.actorId, subjectUserId: auditEvents.subjectUserId, action: auditEvents.action, createdAt: auditEvents.createdAt }).from(auditEvents).orderBy(desc(auditEvents.createdAt)).limit(limit).offset(offset), page };
     throw new AppError(404, "ADMIN_RESOURCE_NOT_FOUND", "Choose reports, accounts, invites, settings or audit.");
