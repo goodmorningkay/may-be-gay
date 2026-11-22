@@ -232,8 +232,8 @@ a.shortcut { color: var(--silver); }
 .phoneIcon { background-image: url("./assets/phone.svg"); }
 .presetCheck { background-image: url("./assets/preset-check.svg"); }
 
-.errorBox, .conflict, .feedback { border: 1px solid var(--border-control); border-left: 3px solid var(--danger); background: var(--panel); padding: 12px 16px; margin-block: 12px; border-radius: var(--control-radius); }
-.feedback { border-left-color: var(--positive); }
+.errorBox, .conflict, .feedback { border: 1px solid var(--danger); background: var(--panel); padding: 12px 16px; margin-block: 12px; border-radius: var(--control-radius); }
+.feedback { border-color: var(--positive); }
 .errorBox p, .conflict p { margin-block: 8px; }
 .conflict h2 { font-size: 22px; }
 .conflict pre { font-size: 12px; overflow: auto; max-height: 24rem; background: var(--control); padding: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
