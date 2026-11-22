@@ -37,7 +37,8 @@ describe("owned media renderer", () => {
     expect(html).not.toMatch(/autoplay|<script\b|onclick=/i);
     expect(html).toContain('href="https://example.com/work"');
     expect(html.indexOf("<audio")).toBeGreaterThan(html.indexOf("</nav>"));
-    expect(html).toContain("Rights / attribution: &lt;b&gt;Example Music&lt;/b&gt;");
+    expect(html).toContain("&lt;b&gt;Example Music&lt;/b&gt; · CC BY");
+    expect(html).not.toContain("Rights / attribution:");
     // Native controls are the no-JS fallback; custom controls appear on hydration.
     expect(html).toContain('aria-label="Play music"');
     expect(html).toContain('type="range"');
@@ -67,11 +68,12 @@ describe("owned media renderer", () => {
     expect(html).toContain('data-button="pill"');
     expect(html).toContain('data-spacing="compact"');
   });
-  it("only starts playback from the play action and provides focus and contrast support", () => {
+  it("defaults to 20% volume with guarded autoplay and provides focus and contrast support", () => {
     const source = readFileSync(new URL("../../src/components/music-player.tsx", import.meta.url), "utf8");
-    expect(source.match(/\.play\(/g)).toHaveLength(1);
+    expect(source).toContain("DEFAULT_VOLUME = 0.2");
+    expect(source).toMatch(/el\.volume = DEFAULT_VOLUME/);
     expect(source).toMatch(/async function toggle\(\)[\s\S]*await audio.current.play/);
-    expect(source).not.toMatch(/useEffect|autoPlay/);
+    expect(source).not.toMatch(/autoPlay/);
     const css = readFileSync(new URL("../../src/components/music-player.module.css", import.meta.url), "utf8");
     expect(css).toContain(":focus-visible");
     expect(css).toContain("forced-colors");
