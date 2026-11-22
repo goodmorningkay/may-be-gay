@@ -100,7 +100,7 @@ export function AuthForm({ mode, verificationStatus, claimUsername, siteDomain =
   if (mode === "verify-email" && verificationStatus === "success") {
     return <OnboardingScreen title="Email verified" address={address}>
       <p role="status"><span className={chrome.srOnly}>Email verified. </span>{claimUsername ? "Sign in to finish claiming your address." : "You can sign in now."}</p>
-      <Link className={chrome.primary} href={signIn}>Sign in</Link>
+      <Link className={chrome.primary} href={signIn} prefetch={false}>Sign in</Link>
     </OnboardingScreen>;
   }
 
@@ -108,14 +108,14 @@ export function AuthForm({ mode, verificationStatus, claimUsername, siteDomain =
     const title = mode === "reset-password" ? "Password reset" : "Check your email";
     return <OnboardingScreen title={title} address={address}>
       <p role="status">{message}</p>
-      <Link className={mode === "forgot-password" ? chrome.button : chrome.primary} href={signIn}>{mode === "forgot-password" ? "Back to sign in" : "Sign in"}</Link>
+      <Link className={mode === "forgot-password" ? chrome.button : chrome.primary} href={signIn} prefetch={false}>{mode === "forgot-password" ? "Back to sign in" : "Sign in"}</Link>
       {mode === "sign-up" && <nav className={styles.nav} aria-label="Verification"><Link href={withClaimUsername("/verify-email", claimUsername)}>Resend verification email</Link></nav>}
     </OnboardingScreen>;
   }
 
   if (mode === "sign-up" && registrationMode === "closed") {
     return <OnboardingScreen title="Registration is closed" address={address}>
-      <Link className={chrome.button} href={signIn}>Sign in</Link>
+      <Link className={chrome.button} href={signIn} prefetch={false}>Sign in</Link>
     </OnboardingScreen>;
   }
 
@@ -147,7 +147,7 @@ export function AuthForm({ mode, verificationStatus, claimUsername, siteDomain =
       </button>}
     </form>
     {mode === "sign-in" && <nav className={styles.nav} aria-label="Account">New here? <Link href={withClaimUsername("/sign-up", claimUsername)}>Create an account</Link></nav>}
-    {mode === "sign-up" && <nav className={styles.nav} aria-label="Account">{privacyLink}<Link href={signIn}>Sign in</Link></nav>}
-    {(mode === "verify-email" || mode === "forgot-password") && <nav className={styles.nav} aria-label="Account"><Link href={signIn}>{mode === "verify-email" ? "Sign in" : "Back to sign in"}</Link></nav>}
+    {mode === "sign-up" && <nav className={styles.nav} aria-label="Account">{privacyLink}<Link href={signIn} prefetch={false}>Sign in</Link></nav>}
+    {(mode === "verify-email" || mode === "forgot-password") && <nav className={styles.nav} aria-label="Account"><Link href={signIn} prefetch={false}>{mode === "verify-email" ? "Sign in" : "Back to sign in"}</Link></nav>}
   </OnboardingScreen>;
 }

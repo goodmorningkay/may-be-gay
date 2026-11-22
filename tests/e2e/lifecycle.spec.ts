@@ -157,6 +157,7 @@ test("autosave races, stale tabs, failure recovery, history, report administrati
     await admin.getByRole("article").filter({ hasText: "designed-invite@example.invalid" }).getByRole("button", { name: "Revoke" }).click();
     await expect(admin.getByRole("article").filter({ hasText: "designed-invite@example.invalid" })).toContainText("Revoked");
     await admin.goto(`${app}/account/security`); await admin.getByRole("button", { name: "Sign out", exact: true }).click();
+    await expect(admin).toHaveURL(`${app}/sign-in`);
     await signIn(admin, "lifecycle-admin@example.invalid"); await expect(admin).toHaveURL(`${app}/two-factor`);
     await admin.getByLabel("Authenticator code", { exact: true }).fill(totp(secret)); await admin.getByRole("button", { name: "Verify code", exact: true }).click();
     await expect(admin).toHaveURL(`${app}/account/security`);
