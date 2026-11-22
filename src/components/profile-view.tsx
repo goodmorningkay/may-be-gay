@@ -42,11 +42,13 @@ function resolveMedia(media: PublicMediaMap, id: string | null | undefined, kind
 }
 
 // Fixed inline paths; authored SVG/markup and external icon requests are forbidden.
-const iconPaths = {
+const iconPaths: Record<Exclude<NonNullable<ProfileDocument["links"][number]["icon"]>, "website">, string> = {
   github: "M9 20c-5 1-5-3-7-3m14 5v-4c0-1-.3-2-1-2 4-.5 6-2 6-6 0-1-1-3-2-3 0-1 0-3-1-4-2 0-3 1-4 2h-4C8 4 7 3 5 3 4 4 4 6 4 7c-1 0-2 2-2 3 0 4 2 5.5 6 6-.7 0-1 1-1 2v4",
   instagram: "M7 3h10a4 4 0 0 1 4 4v10a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V7a4 4 0 0 1 4-4Zm9 9a4 4 0 1 1-8 0 4 4 0 0 1 8 0Zm1-6h1",
   mastodon: "M5 17V7a4 4 0 0 1 4-4h6a4 4 0 0 1 4 4v7c0 3-3 4-7 4H8c0 2 3 3 6 2M8 13V8l4 4 4-4v5",
   bluesky: "M12 11C7 2 2 2 3 8c0 3 3 4 6 4-7 0-5 7-1 6l4-5 4 5c4 1 6-6-1-6 3 0 6-1 6-4 1-6-4-6-9 3Z",
+  twitter: "M22 4s-.7 2.1-2 3.4c1.6 10-9.4 17.3-18 11.6 2.2.1 4.4-.6 6-2C3 15.5.5 9.6 3 5c2.2 2.6 5.6 4.1 9 4-.9-4.2 4-6.6 7-3.8 1.1 0 3-1.2 3-1.2Z",
+  x: "M4 4l11.733 16h4.267L8.267 4H4Zm0 16l6.768-6.768m2.46-2.46L20 4",
   youtube: "M5 5h14a3 3 0 0 1 3 3v8a3 3 0 0 1-3 3H5a3 3 0 0 1-3-3V8a3 3 0 0 1 3-3Zm5 4v6l5-3-5-3Z",
   twitch: "M5 3h16v12l-5 5h-5l-4 3v-3H3V7l2-4Zm6 4v6m5-6v6",
   linkedin: "M5 9v11M5 4v1M10 20V9m0 4c0-5 9-5 9 0v7",

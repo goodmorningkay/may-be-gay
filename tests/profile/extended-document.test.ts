@@ -21,7 +21,10 @@ describe("additive v1 document contract", () => {
     const doc = createExampleProfile();
     doc.contact = { email: "public@example.com" };
     doc.links[0].icon = "github";
+    doc.links[1].icon = "twitter";
+    doc.links[2].icon = "x";
     expect(getPublicDocument(doc).contact?.email).toBe("public@example.com");
+    expect(getPublicDocument(doc).links.map((link) => link.icon)).toEqual(["github", "twitter", "x"]);
     for (const email of ["bad", "person@example.com?subject=evil", "a\nb@example.com", "x%0a@example.com"]) {
       expect(profileDocumentSchema.safeParse({ ...doc, contact: { email } }).success).toBe(false);
     }

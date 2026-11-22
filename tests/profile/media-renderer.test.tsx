@@ -13,6 +13,8 @@ function fixture() {
   const document = createExampleProfile();
   Object.assign(document, { avatarAssetId: avatarId, backgroundAssetId: bgId, music: { assetId: musicId, attribution: '<b>Example Music</b> · CC BY' }, contact: { email: "public@example.com" } });
   document.links[0].icon = "github";
+  document.links[1].icon = "twitter";
+  document.links[2].icon = "x";
   return document;
 }
 const media = {
@@ -30,6 +32,8 @@ describe("owned media renderer", () => {
     expect(html).toContain('alt="" aria-hidden="true"');
     expect(html).toContain('href="mailto:public@example.com"');
     expect(html).toContain('data-icon="github"');
+    expect(html).toContain('data-icon="twitter"');
+    expect(html).toContain('data-icon="x"');
   });
   it("leaves ordinary links working without loading media or running JS", () => {
     const html = render();
