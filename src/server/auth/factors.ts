@@ -23,6 +23,12 @@ export async function handleFactorRequest(path: string, request: Request): Promi
     // Both direct plugin adapter calls and internalAdapter hooks must use this
     // connection. Merely enabling adapter transactions does not wrap endpoints.
     const auth = createAccountAuthInTransaction(tx);
+    const priorSession = proofPaths.has(path)
+      ? await auth.api.getSession({ headers: request.headers, query: { disableCookieCache: true } })
+      : null;
+    const priorAssurance = priorSession
+      ? (await tx.select({ reauthenticatedAt: sessionAssurance.reauthenticatedAt }).from(sessionAssurance).where(eq(sessionAssurance.sessionId, priorSession.session.id)))[0]
+      : undefined;
     const response = await auth.handler(request);
     if (!response.ok) {
       const error = z.object({ code: z.string() }).safeParse(await response.clone().json());
@@ -35,6 +41,13 @@ export async function handleFactorRequest(path: string, request: Request): Promi
       // consumption/reset, when final challenge consumption fails. Roll it back.
       throw new AppError(response.status === 429 ? 429 : 400, "AUTH_FAILED", "Unable to complete authentication.");
     }
+    if (path === "/two-factor/enable") {
+      // Enabling 2FA verified the user's current password inside this transaction.
+      const current = await auth.api.getSession({ headers: cookieHeaders(request.headers, response), query: { disableCookieCache: true } });
+      if (!current) throw new AppError(401, "AUTH_FAILED", "Please sign in again.");
+      const reauthenticatedAt = new Date();
+      await tx.insert(sessionAssurance).values({ sessionId: current.session.id, reauthenticatedAt }).onConflictDoUpdate({ target: sessionAssurance.sessionId, set: { reauthenticatedAt } });
+    }
     if (proofPaths.has(path)) {
       const verified = z.object({ user: z.object({ id: z.string().min(1) }) }).safeParse(await response.clone().json());
       // Initial TOTP confirmation returns the old token, but sets a new cookie.
@@ -46,7 +59,25 @@ export async function handleFactorRequest(path: string, request: Request): Promi
         .where(and(eq(session.id, recipient.session.id), eq(user.id, verified.data.user.id), gt(session.expiresAt, new Date()), eq(user.emailVerified, true), isNull(user.suspendedAt), isNull(user.deletedAt), eq(user.twoFactorEnabled, true), eq(twoFactor.verified, true)));
       if (!live) throw new AppError(401, "AUTH_FAILED", "Please sign in again.");
       const secondFactorAt = new Date();
-      await tx.insert(sessionAssurance).values({ sessionId: live.id, secondFactorAt }).onConflictDoUpdate({ target: sessionAssurance.sessionId, set: { secondFactorAt } });
+      // Sign-in 2FA completion (no prior session) proves both password (via the
+      // signed two-factor challenge cookie) and second factor. Initial TOTP
+      // enrollment rotates the session, so preserve any prior password proof.
+      const reauthenticatedAt = !priorSession
+        ? secondFactorAt
+        : live.id !== priorSession.session.id
+          ? (priorAssurance?.reauthenticatedAt ?? null)
+          : undefined;
+      await tx.insert(sessionAssurance).values({
+        sessionId: live.id,
+        secondFactorAt,
+        ...(reauthenticatedAt !== undefined ? { reauthenticatedAt } : {}),
+      }).onConflictDoUpdate({
+        target: sessionAssurance.sessionId,
+        set: {
+          secondFactorAt,
+          ...(reauthenticatedAt !== undefined ? { reauthenticatedAt } : {}),
+        },
+      });
     }
     // Handler response and replacement cookies remain private until commit;
     // a failed proof/assurance write rolls back factor state and session changes.

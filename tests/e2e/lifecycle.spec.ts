@@ -160,7 +160,8 @@ test("autosave races, stale tabs, failure recovery, history, report administrati
     await signIn(admin, "lifecycle-admin@example.invalid"); await expect(admin).toHaveURL(`${app}/two-factor`);
     await admin.getByLabel("Authenticator code", { exact: true }).fill(totp(secret)); await admin.getByRole("button", { name: "Verify code", exact: true }).click();
     await expect(admin).toHaveURL(`${app}/account/security`);
-    await confirmPassword(admin);
+    await admin.goto(`${app}/admin`);
+    await expect(admin.getByRole("heading", { name: "Administration", exact: true })).toBeVisible();
     expect((await adminContext.request.get(`${app}/api/admin/reports`)).status()).toBe(200);
   } finally { await adminContext.close(); checkAdmin(); }
   await page.getByLabel("Type DELETE MY ACCOUNT", { exact: true }).fill("DELETE MY ACCOUNT");
