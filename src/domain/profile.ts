@@ -25,13 +25,27 @@ export const linkUrlSchema = z.string().max(2048).refine(
   "Use a complete HTTP or HTTPS URL without credentials, whitespace, controls or backslashes.",
 );
 
+export const socialLinkIcons = [
+  "website",
+  "github",
+  "instagram",
+  "mastodon",
+  "bluesky",
+  "twitter",
+  "x",
+  "youtube",
+  "twitch",
+  "linkedin",
+  "spotify",
+] as const;
+
 const linkSchema = z
   .object({
     id: z.string().uuid(),
     label: z.string().min(1).max(100),
     url: linkUrlSchema,
     visible: z.boolean(),
-    icon: z.enum(["website", "github", "instagram", "mastodon", "bluesky", "youtube", "twitch", "linkedin", "spotify"]).optional(),
+    icon: z.enum(socialLinkIcons).optional(),
   })
   .strict();
 

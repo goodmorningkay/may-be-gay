@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { reorderLink, type FieldErrors } from "@/domain/editor";
-import type { ProfileDocument } from "@/domain/profile";
+import { socialLinkIcons, type ProfileDocument } from "@/domain/profile";
 import { EditorIcon } from "./editor-icon";
 import { Field } from "./fields";
 import styles from "./editor.module.css";
@@ -22,7 +22,7 @@ export function AboutFields({ document: d, errors, onChange }: Props) {
   </section>;
 }
 
-const socialIcons = ["website", "github", "instagram", "mastodon", "bluesky", "youtube", "twitch", "linkedin", "spotify"] as const;
+const socialIcons = socialLinkIcons;
 
 export function LinkFields({ document: d, errors, onChange, edit, onEdit }: Props & { edit: LinkEdit | null; onEdit: (edit: LinkEdit | null) => void }) {
   const [announcement, setAnnouncement] = useState("");
