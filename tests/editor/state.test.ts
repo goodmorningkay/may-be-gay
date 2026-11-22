@@ -71,6 +71,15 @@ describe("content helpers", () => {
     expect(result.document).toBeNull();
     expect(Object.keys(result.errors)).toEqual(expect.arrayContaining(["displayName", "contact.email", "music.attribution", "theme.colors.ink", "links.0.label", "links.0.url"]));
   });
+  it("validates Discord links as copyable usernames and requires a URL again for other icons", () => {
+    const discordDoc: ProfileDocument = {
+      ...initial().document,
+      links: [{ id: uuid, label: "Discord", url: "alex_dev", visible: true, icon: "discord" }],
+    };
+    expect(validateDraft(discordDoc).errors).toEqual({});
+    expect(validateDraft({ ...discordDoc, links: [{ ...discordDoc.links[0], url: "   " }] }).errors).toHaveProperty("links.0.url");
+    expect(validateDraft({ ...discordDoc, links: [{ ...discordDoc.links[0], icon: "github" }] }).errors).toHaveProperty("links.0.url");
+  });
 });
 
 describe("serialized editor saves", () => {

@@ -35,6 +35,20 @@ describe("owned media renderer", () => {
     expect(html).toContain('data-icon="twitter"');
     expect(html).toContain('data-icon="x"');
   });
+  it("renders Discord links as copyable buttons with escaped usernames instead of external anchors", () => {
+    const doc = fixture();
+    doc.links[0] = { ...doc.links[0], icon: "discord", label: "Add me on Discord", url: "alex_dev<tag>" };
+    const html = render(doc);
+    expect(html).toContain('data-icon="discord"');
+    expect(html).toContain('data-copy-link="true"');
+    expect(html).toContain(`data-profile-link="${doc.links[0].id}"`);
+    expect(html).toContain("Add me on Discord");
+    expect(html).toContain("alex_dev&lt;tag&gt;");
+    expect(html).not.toContain('href="alex_dev');
+    const copySource = readFileSync(new URL("../../src/components/copy-link.tsx", import.meta.url), "utf8");
+    expect(copySource).toContain("navigator.clipboard?.writeText");
+    expect(copySource).toContain("Copied");
+  });
   it("leaves ordinary links working without loading media or running JS", () => {
     const html = render();
     expect(html).toMatch(/<audio\b[^>]*controls=""[^>]*preload="none"/);

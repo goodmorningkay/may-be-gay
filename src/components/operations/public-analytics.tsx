@@ -15,8 +15,8 @@ export function PublicAnalytics({ username, domain = getSiteDomain() }: { userna
     const view = () => { if (!sent && document.visibilityState === "visible") { sent = true; send({ event: "view" }); } };
     const click = (e: MouseEvent) => {
       if (!e.isTrusted || (e.type === "auxclick" && e.button !== 1)) return;
-      const anchor = e.target instanceof Element ? e.target.closest<HTMLAnchorElement>("a[data-profile-link]") : null;
-      const linkId = anchor?.dataset.profileLink;
+      const target = e.target instanceof Element ? e.target.closest<HTMLElement>("a[data-profile-link], button[data-profile-link]") : null;
+      const linkId = target?.dataset.profileLink;
       if (linkId && /^[0-9a-f-]{36}$/i.test(linkId)) send({ event: "click", linkId });
     };
     // Effects don't execute on server render/RSC prefetch; wait for real visible

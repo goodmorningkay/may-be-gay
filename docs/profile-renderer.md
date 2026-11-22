@@ -88,7 +88,7 @@ All objects remain strict; there is no arbitrary CSS/JS/HTML or remote-URL field
 | `contact` | `{ email }`, null or absent. Explicit public email, max 254, validated without URI header/control injection. Never copied from account login email. |
 | `avatarAssetId`, `backgroundAssetId` | UUID, null or absent. Owned ready images, validated again server-side. |
 | `music` | `{ assetId: UUID, attribution: string }`, null or absent. Nonblank attribution, max 300; ready owned MP3 required. |
-| `links[].icon` | Optional `website`, `github`, `instagram`, `mastodon`, `bluesky`, `twitter`, `x`, `youtube`, `twitch`, `linkedin`, `spotify`. Fixed decorative inline SVG beside the visible link label/host. |
+| `links[].icon` | Optional `website`, `github`, `instagram`, `mastodon`, `bluesky`, `twitter`, `x`, `youtube`, `twitch`, `discord`, `linkedin`, `spotify`. Fixed decorative inline SVG beside the visible link label/host. When set to `discord`, `links[].url` stores a nonblank Discord username (1–100 chars, no control characters) instead of a URL and renders a copy-to-clipboard button. |
 | `theme.colors` | Optional strict object with optional `background`, `surface`, `ink`, `accent`, each `#rrggbb`. Custom ink also supplies muted text color, and custom accent also supplies border color. |
 | `theme.button` | `preset`, `square`, `rounded`, `pill`; absent retains preset corners. |
 | `theme.background` | `{ kind: "solid", color }` or `{ kind: "gradient", from, to, direction: "down" \| "right" \| "diagonal" }`. Colors are six-digit hex. |
