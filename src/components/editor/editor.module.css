@@ -80,6 +80,7 @@
 .sectionFooter { margin-top: 17px; padding-top: 17px; border-top: 1px solid var(--border-subtle); }
 
 .field { display: grid; gap: 8px; min-width: 0; }
+.toggleField { display: grid; gap: 6px; margin-top: 17px; }
 .field + .field, .twoColumns + .field, .mediaRows + .field, .field + .checkRow, .twoColumns + .twoColumns { margin-top: 17px; }
 .field > label, .sectionPicker > label, .controlLabel { font-size: 13px; font-weight: 600; line-height: 18px; margin: 0; }
 .field input:not([type="color"]), .field textarea, .editor select, .addressInput input {
@@ -101,7 +102,7 @@
 .field textarea { min-height: 74px; resize: vertical; }
 .field [aria-invalid="true"], .choose:has([aria-invalid="true"]) > span { border-color: var(--danger); }
 .hint { color: var(--text-secondary); font-size: 13px; line-height: 18px; }
-.field .hint, .fieldError { font-size: 12px; line-height: 16px; }
+.field .hint, .toggleField .hint, .fieldError { font-size: 12px; line-height: 16px; }
 .fieldError { color: var(--danger); }
 .fieldError:empty, .hint:empty { display: none; }
 .twoColumns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 17px 14px; }

@@ -82,4 +82,26 @@ describe("owned media renderer", () => {
     expect(css).toContain(":focus-visible");
     expect(css).toContain("forced-colors");
   });
+  it("renders a no-JS-safe click-to-enter overlay only when enabled and plays profile music on click", () => {
+    expect(render()).not.toContain("Click to enter");
+    const withMusic = { ...fixture(), clickToEnter: true };
+    const htmlWithMusic = render(withMusic);
+    expect(htmlWithMusic).toContain('role="dialog"');
+    expect(htmlWithMusic).toContain('aria-modal="true"');
+    expect(htmlWithMusic).toContain('hidden=""');
+    expect(htmlWithMusic).toContain("Click to enter · plays music");
+    expect(htmlWithMusic).toContain('data-profile-music="true"');
+
+    const withoutMusic = { ...createExampleProfile(), clickToEnter: true };
+    const htmlWithoutMusic = render(withoutMusic, {});
+    expect(htmlWithoutMusic).toContain("Click to enter");
+    expect(htmlWithoutMusic).not.toContain("plays music");
+
+    const source = readFileSync(new URL("../../src/components/click-to-enter.tsx", import.meta.url), "utf8");
+    expect(source).toContain('audio[data-profile-music]');
+    expect(source).toContain("audio.play()");
+    const css = readFileSync(new URL("../../src/components/click-to-enter.module.css", import.meta.url), "utf8");
+    expect(css).toContain(":focus-visible");
+    expect(css).toContain("forced-colors");
+  });
 });

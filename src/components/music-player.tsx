@@ -3,12 +3,12 @@
 import * as React from "react";
 import styles from "./music-player.module.css";
 
-type MusicPlayerProps = { url: string; attribution: string; durationMs?: number };
+type MusicPlayerProps = { url: string; attribution: string; durationMs?: number; deferPlay?: boolean };
 const DEFAULT_VOLUME = 0.2;
 const subscribe = () => () => {};
 const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
 
-export function MusicPlayer({ url, attribution, durationMs }: MusicPlayerProps) {
+export function MusicPlayer({ url, attribution, durationMs, deferPlay = false }: MusicPlayerProps) {
   const audio = React.useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = React.useState(false);
   const [error, setError] = React.useState("");
@@ -24,6 +24,7 @@ export function MusicPlayer({ url, attribution, durationMs }: MusicPlayerProps) 
     const el = audio.current;
     if (!el) return;
     el.volume = DEFAULT_VOLUME;
+    if (deferPlay) return;
     let active = true;
     const attempt = el.play();
     if (attempt && typeof attempt.catch === "function") {
@@ -33,7 +34,7 @@ export function MusicPlayer({ url, attribution, durationMs }: MusicPlayerProps) 
       });
     }
     return () => { active = false; };
-  }, [url]);
+  }, [url, deferPlay]);
 
   async function toggle() {
     if (!audio.current) return;
@@ -45,7 +46,7 @@ export function MusicPlayer({ url, attribution, durationMs }: MusicPlayerProps) 
   }
 
   return <section className={styles.player} aria-label="Profile music" data-enhanced={hydrated || undefined}>
-    <audio ref={audio} src={url} controls preload="none" aria-label="Profile music player" aria-describedby={attributionId}
+    <audio ref={audio} src={url} controls preload="none" data-profile-music="true" aria-label="Profile music player" aria-describedby={attributionId}
       onDurationChange={({ currentTarget }) => { if (Number.isFinite(currentTarget.duration)) setDuration(currentTarget.duration); }}
       onLoadedMetadata={() => setCanSeek(true)}
       onTimeUpdate={({ currentTarget }) => setPosition(currentTarget.currentTime)}
