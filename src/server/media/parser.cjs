@@ -41,7 +41,7 @@ function mp3Frames(data) {
     for (let n = 6; n < 10; n++) if (data[n] & 128) fail();
     const size = (data[6] << 21) | (data[7] << 14) | (data[8] << 7) | data[9];
     start = 10 + size + ((data[5] & 16) ? 10 : 0);
-    if (start > 256 * 1024 || start >= end) fail();
+    if (start > 5 * MiB || start >= end) fail();
   }
   if (end - start >= 128 && data.toString("ascii", end - 128, end - 125) === "TAG") end -= 128;
   let pos = start, frames = 0, seconds = 0, signature;

@@ -121,7 +121,7 @@ export function MediaLibrary({ profileId, document: d, errors, disabled, onChang
     {selector("backgroundAssetId", "Background image", "image", d.backgroundAssetId, id => onChange({ ...d, backgroundAssetId: id }))}
     {selector("music.assetId", "Profile music", "audio", d.music?.assetId, id => onChange({ ...d, music: id ? { assetId: id, attribution: d.music?.attribution ?? "" } : null }))}
     </div>
-    {d.music ? <Field name="music.attribution" label="Music rights / attribution" hint="Required. Name the track, artist and your permission or licence. Visitors start playback themselves." errors={errors}>{props => <textarea {...props} disabled={disabled} rows={3} maxLength={300} value={d.music?.attribution ?? ""} onChange={e => { if (d.music) onChange({ ...d, music: { ...d.music, attribution: e.target.value } }); }} />}</Field> : null}
+    {d.music ? <Field name="music.attribution" label="Music rights / attribution" hint="Required. Name the artist and track (and any permission or licence). Shown on your profile player." errors={errors}>{props => <textarea {...props} disabled={disabled} rows={3} maxLength={300} value={d.music?.attribution ?? ""} onChange={e => { if (d.music) onChange({ ...d, music: { ...d.music, attribution: e.target.value } }); }} />}</Field> : null}
     <div className={styles.sectionFooter}>
       <div className={styles.inlineActions}>
         <label className={`${styles.button} ${styles.upload}`}>

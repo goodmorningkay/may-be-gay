@@ -3,9 +3,7 @@
 .player[data-enhanced="true"] audio { display: none; }
 .controls[hidden] { display: none; }
 .titleRow, .timeline { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.titleRow strong, .titleRow span { display: block; line-height: 1.35; }
-.titleRow strong { font-size: 14px; }
-.titleRow span { color: var(--muted); font-size: 12px; }
+.title { display: block; min-width: 0; font-size: 14px; line-height: 1.35; overflow-wrap: anywhere; white-space: pre-wrap; }
 .play, .volume { display: grid; place-items: center; border: 0; cursor: pointer; padding: 0; }
 .play { width: 44px; height: 44px; flex: 0 0 44px; border-radius: 50%; color: var(--surface); background: var(--ink); }
 .play::before, .volume::before { content: ""; width: 18px; height: 18px; background: currentColor; }

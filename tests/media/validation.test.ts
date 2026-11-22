@@ -64,6 +64,18 @@ describe("media byte and parser bounds", () => {
       await expect(validateMedia(Buffer.concat([input, Buffer.from("<script>active tail</script>")]),"audio")).rejects.toMatchObject({ code: "MEDIA_INVALID" });
       await expect(validateMedia(input.subarray(0,input.length-3),"audio")).rejects.toMatchObject({ code: "MEDIA_INVALID" });
       const track = result.original;
+      const makeId3v24 = (payloadBytes: number) => {
+        const header = Buffer.alloc(10);
+        header.write("ID3", 0, "ascii");
+        header[3] = 4; header[4] = 0; header[5] = 0;
+        header[6] = (payloadBytes >> 21) & 0x7f; header[7] = (payloadBytes >> 14) & 0x7f;
+        header[8] = (payloadBytes >> 7) & 0x7f; header[9] = payloadBytes & 0x7f;
+        return Buffer.concat([header, Buffer.alloc(payloadBytes), track]);
+      };
+      const withLargeCoverArt = await validateMedia(makeId3v24(512 * 1024), "audio");
+      expect(withLargeCoverArt.contentType).toBe("audio/mpeg");
+      expect(withLargeCoverArt.original.equals(track)).toBe(true);
+      await expect(validateMedia(makeId3v24(5 * 1024 * 1024), "audio")).rejects.toMatchObject({ code: "MEDIA_INVALID" });
       await expect(validateMedia(Buffer.concat(Array.from({length:1000},()=>track)), "audio")).rejects.toMatchObject({ code: "MEDIA_INVALID" });
     } finally { await rm(dir,{recursive:true,force:true}); }
   });

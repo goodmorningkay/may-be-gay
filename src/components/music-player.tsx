@@ -4,6 +4,7 @@ import * as React from "react";
 import styles from "./music-player.module.css";
 
 type MusicPlayerProps = { url: string; attribution: string; durationMs?: number };
+const DEFAULT_VOLUME = 0.2;
 const subscribe = () => () => {};
 const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
 
@@ -11,13 +12,28 @@ export function MusicPlayer({ url, attribution, durationMs }: MusicPlayerProps) 
   const audio = React.useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = React.useState(false);
   const [error, setError] = React.useState("");
-  const [volume, setVolume] = React.useState(1);
+  const [volume, setVolume] = React.useState(DEFAULT_VOLUME);
   const [muted, setMuted] = React.useState(false);
   const [duration, setDuration] = React.useState((durationMs ?? 0) / 1000);
   const [position, setPosition] = React.useState(0);
   const [canSeek, setCanSeek] = React.useState(false);
   const hydrated = React.useSyncExternalStore(subscribe, () => true, () => false);
   const attributionId = React.useId();
+
+  React.useEffect(() => {
+    const el = audio.current;
+    if (!el) return;
+    el.volume = DEFAULT_VOLUME;
+    let active = true;
+    const attempt = el.play();
+    if (attempt && typeof attempt.catch === "function") {
+      attempt.catch(() => {
+        // Browsers may block audible autoplay before user interaction; stay paused quietly.
+        if (active) setPlaying(false);
+      });
+    }
+    return () => { active = false; };
+  }, [url]);
 
   async function toggle() {
     if (!audio.current) return;
@@ -40,7 +56,7 @@ export function MusicPlayer({ url, attribution, durationMs }: MusicPlayerProps) 
     <div className={styles.controls} hidden={!hydrated}>
       <div className={styles.titleRow}>
         <button type="button" className={styles.play} onClick={toggle} data-playing={playing || undefined} aria-label={playing ? "Pause music" : "Play music"} />
-        <div><strong>Music</strong><span>{playing ? "Playing" : "Play music"}</span></div>
+        <strong id={hydrated ? attributionId : undefined} className={styles.title}>{attribution}</strong>
       </div>
       <div className={styles.timeline}>
         <span>{clock(position)} / {duration ? clock(duration) : "–:––"}</span>
@@ -53,7 +69,7 @@ export function MusicPlayer({ url, attribution, durationMs }: MusicPlayerProps) 
           onChange={event => { if (audio.current) { audio.current.muted = false; audio.current.volume = Number(event.target.value); } }} />
       </div>
     </div>
-    <p id={attributionId} className={styles.attribution}>Rights / attribution: {attribution}</p>
+    <p id={hydrated ? undefined : attributionId} className={styles.attribution} hidden={hydrated}>{attribution}</p>
     <p role="status" className={styles.status}>{error}</p>
   </section>;
 }
