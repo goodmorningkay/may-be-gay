@@ -59,7 +59,9 @@ test("homepage keeps the requested address through public signup and verificatio
   await expect(page.locator("main")).toHaveAttribute("data-layout", "split");
   await page.goto(`${apex}/privacy`);
   await expect(page.getByRole("navigation", { name: "Policies" }).getByRole("link", { name: "Privacy" })).toHaveAttribute("aria-current", "page");
-  await expect(page.getByText("Kay", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "What is public" })).toBeVisible();
+  await expect(page.getByText("Development draft")).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Operator and audience" })).toHaveCount(0);
   expectedErrors.push(/^Console: Failed to load resource: the server responded with a status of 404.*\[https:\/\/unknown\.may-be\.localhost\/\]$/);
   const missing = await page.goto("https://unknown.may-be.localhost/");
   expect(missing?.status()).toBe(404);
