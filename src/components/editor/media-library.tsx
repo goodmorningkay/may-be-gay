@@ -122,6 +122,16 @@ export function MediaLibrary({ profileId, document: d, errors, disabled, onChang
     {selector("music.assetId", "Profile music", "audio", d.music?.assetId, id => onChange({ ...d, music: id ? { assetId: id, attribution: d.music?.attribution ?? "" } : null }))}
     </div>
     {d.music ? <Field name="music.attribution" label="Music rights / attribution" hint="Required. Name the artist and track (and any permission or licence). Shown on your profile player." errors={errors}>{props => <textarea {...props} disabled={disabled} rows={3} maxLength={300} value={d.music?.attribution ?? ""} onChange={e => { if (d.music) onChange({ ...d, music: { ...d.music, attribution: e.target.value } }); }} />}</Field> : null}
+    <div className={styles.toggleField}>
+      <label className={styles.checkRow}>Click to enter
+        <input id="field-clickToEnter" className={styles.switch} type="checkbox" role="switch" disabled={disabled}
+          checked={Boolean(d.clickToEnter)} onChange={e => {
+            if (e.target.checked) onChange({ ...d, clickToEnter: true });
+            else { const { clickToEnter: _clickToEnter, ...rest } = d; void _clickToEnter; onChange(rest); }
+          }} />
+      </label>
+      <p className={styles.hint}>Shows a “Click to enter” screen before your page opens. Enable this if you want profile music to autoplay — browsers block audible autoplay until a visitor interacts with the page.</p>
+    </div>
     <div className={styles.sectionFooter}>
       <div className={styles.inlineActions}>
         <label className={`${styles.button} ${styles.upload}`}>

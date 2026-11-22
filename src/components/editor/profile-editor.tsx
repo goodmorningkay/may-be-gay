@@ -27,7 +27,7 @@ function sectionForField(field: string): Section {
   const root = field.split(".")[0];
   if (root === "links") return "links";
   if (root === "theme") return "appearance";
-  if (root === "avatarAssetId" || root === "backgroundAssetId" || root === "music") return "media";
+  if (root === "avatarAssetId" || root === "backgroundAssetId" || root === "music" || root === "clickToEnter") return "media";
   if (root === "pageTitle" || root === "pageDescription" || root === "allowIndexing") return "discovery";
   return "identity";
 }

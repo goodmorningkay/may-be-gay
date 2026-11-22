@@ -67,6 +67,7 @@ export const profileDocumentSchema = z
       assetId: z.string().uuid(),
       attribution: z.string().min(1).max(300).refine((value) => value.trim().length > 0, "Supply music rights / attribution."),
     }).strict().nullable().optional(),
+    clickToEnter: z.boolean().optional(),
     links: z.array(linkSchema).max(30),
     theme: z
       .object({

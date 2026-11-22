@@ -35,9 +35,15 @@ describe("additive v1 document contract", () => {
     { backgroundAssetId: "data:image/png,evil" },
     { music: { assetId: audio, attribution: " " } },
     { music: { assetId: audio, attribution: "x", autoplay: true } },
+    { clickToEnter: "true" },
     { contact: { email: "public@example.com", phone: "123" } },
   ])("rejects unowned-reference syntax and unexpected settings %j", (fields) => {
     expect(profileDocumentSchema.safeParse({ ...defaultProfileDocument, ...fields }).success).toBe(false);
+  });
+  it("accepts optional clickToEnter boolean without changing legacy snapshots", () => {
+    expect(profileDocumentSchema.parse({ ...defaultProfileDocument, clickToEnter: true }).clickToEnter).toBe(true);
+    expect(profileDocumentSchema.parse({ ...defaultProfileDocument, clickToEnter: false }).clickToEnter).toBe(false);
+    expect(profileDocumentSchema.parse(defaultProfileDocument).clickToEnter).toBeUndefined();
   });
   it("accepts controlled appearance options, rejects active CSS and arbitrary values", () => {
     const theme = { ...defaultProfileDocument.theme, colors: { background: "#010203", surface: "#ffffff", ink: "#123456", accent: "#aabbcc" },
