@@ -37,6 +37,7 @@ test("homepage keeps the requested address through public signup and verificatio
   await page.goto(apex);
   await page.getByRole("link", { name: "Log in" }).click();
   await expect(page).toHaveURL(`${app}/editor`);
+  await expect(page.getByRole("textbox", { name: "Username" })).toBeVisible();
 
   await page.goto(apex);
   await page.getByRole("textbox", { name: "Username" }).fill(username);
