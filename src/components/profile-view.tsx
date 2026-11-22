@@ -4,6 +4,7 @@ import * as React from "react";
 import type { PublicMedia, PublicMediaMap } from "@/domain/media";
 import { getPublicDocument, getThemeColors, isCopyableLink, linkUrlSchema, type ProfileDocument } from "@/domain/profile";
 
+import { ClickToEnter } from "./click-to-enter";
 import { CopyLink } from "./copy-link";
 import { MusicPlayer } from "./music-player";
 
@@ -146,7 +147,7 @@ export function ProfileView({
             ) : (
               <p className={styles.empty}>No public links yet.</p>
             )}
-            {music && profile.music && <MusicPlayer key={music.url} url={music.url} durationMs={music.durationMs} attribution={profile.music.attribution} />}
+            {music && profile.music && <MusicPlayer key={music.url} url={music.url} durationMs={music.durationMs} attribution={profile.music.attribution} deferPlay={Boolean(profile.clickToEnter)} />}
           </div>
         </div>
 
@@ -159,6 +160,7 @@ export function ProfileView({
           </a>
         </footer>
       </div>
+      {profile.clickToEnter ? <ClickToEnter displayName={profile.displayName} username={username} hasMusic={Boolean(music && profile.music)} /> : null}
     </main>
   );
 }
