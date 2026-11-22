@@ -2,9 +2,10 @@
 import * as React from "react";
 
 import type { PublicMedia, PublicMediaMap } from "@/domain/media";
-import { getPublicDocument, getThemeColors, linkUrlSchema, type ProfileDocument } from "@/domain/profile";
+import { getPublicDocument, getThemeColors, isCopyableLink, linkUrlSchema, type ProfileDocument } from "@/domain/profile";
 
 import { ClickToEnter } from "./click-to-enter";
+import { CopyLink } from "./copy-link";
 import { MusicPlayer } from "./music-player";
 
 import "./brand.module.css";
@@ -52,6 +53,7 @@ const iconPaths: Record<Exclude<NonNullable<ProfileDocument["links"][number]["ic
   x: "M4 4l11.733 16h4.267L8.267 4H4Zm0 16l6.768-6.768m2.46-2.46L20 4",
   youtube: "M5 5h14a3 3 0 0 1 3 3v8a3 3 0 0 1-3 3H5a3 3 0 0 1-3-3V8a3 3 0 0 1 3-3Zm5 4v6l5-3-5-3Z",
   twitch: "M5 3h16v12l-5 5h-5l-4 3v-3H3V7l2-4Zm6 4v6m5-6v6",
+  discord: "M8.5 17c0 1-1.356 3-1.832 3-1.429 0-2.698-1.667-3.333-3-.635-1.667-.476-5.833 1.428-11.5C6.151 4.485 7.545 4.16 9 4l1 2.5h4L15 4c1.455.16 2.849.485 4.237 1.5 1.904 5.667 2.063 9.833 1.428 11.5-.635 1.333-1.904 3-3.333 3-.476 0-1.832-2-1.832-3M7 16.5c3.5 1 6.5 1 10 0M9 12a1 1 0 1 0 0-2 1 1 0 0 0 0 2Zm6 0a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z",
   linkedin: "M5 9v11M5 4v1M10 20V9m0 4c0-5 9-5 9 0v7",
   spotify: "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20ZM6 9c4-2 8-2 12 0M7 12c3-2 7-2 10 0M8 15c2-1 5-1 8 0",
 };
@@ -121,14 +123,23 @@ export function ProfileView({
                 <ul className={styles.links}>
                   {profile.links.map((link) => (
                     <li key={link.id}>
-                      <a className={styles.link} href={link.url} data-profile-link={link.id}>
-                        {link.icon ? <SocialIcon name={link.icon} /> : null}
-                        <span className={styles.linkText}>
-                          <span className={styles.linkLabel}>{link.label}</span>
-                          <span className={styles.linkHost}>{new URL(link.url).host}</span>
-                        </span>
-                        <span className={icons.arrow} aria-hidden="true">→</span>
-                      </a>
+                      {isCopyableLink(link) ? (
+                        <CopyLink
+                          id={link.id}
+                          label={link.label}
+                          value={link.url}
+                          icon={link.icon ? <SocialIcon name={link.icon} /> : null}
+                        />
+                      ) : (
+                        <a className={styles.link} href={link.url} data-profile-link={link.id}>
+                          {link.icon ? <SocialIcon name={link.icon} /> : null}
+                          <span className={styles.linkText}>
+                            <span className={styles.linkLabel}>{link.label}</span>
+                            <span className={styles.linkHost}>{new URL(link.url).host}</span>
+                          </span>
+                          <span className={icons.arrow} aria-hidden="true">→</span>
+                        </a>
+                      )}
                     </li>
                   ))}
                 </ul>

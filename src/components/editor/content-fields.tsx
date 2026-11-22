@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { reorderLink, type FieldErrors } from "@/domain/editor";
-import { socialLinkIcons, type ProfileDocument } from "@/domain/profile";
+import { isCopyableLink, socialLinkIcons, type ProfileDocument } from "@/domain/profile";
 import { EditorIcon } from "./editor-icon";
 import { Field } from "./fields";
 import styles from "./editor.module.css";
@@ -74,7 +74,7 @@ export function LinkFields({ document: d, errors, onChange, edit, onEdit }: Prop
         <button type="button" className={styles.linkRow} aria-haspopup="dialog" onClick={() => onEdit({ id: value.id })}>
           <span className={styles.linkSummary}>
             <strong>{value.label || `Link ${position + 1}`}</strong>
-            <span>{value.url || "Add a URL"}</span>
+            <span>{value.url || (isCopyableLink(value) ? "Add a Discord username" : "Add a URL")}</span>
           </span>
           {!value.visible && <span className={styles.rowMeta}>Hidden</span>}
         </button>
@@ -93,7 +93,11 @@ export function LinkFields({ document: d, errors, onChange, edit, onEdit }: Prop
       </div>
       {link && <>
         <Field name={`links.${index}.label`} label="Label" errors={errors}>{props => <input {...props} value={link.label} maxLength={100} required onChange={e => updateLink({ label: e.target.value })} />}</Field>
-        <Field name={`links.${index}.url`} label="URL" errors={errors}>{props => <input {...props} type="url" inputMode="url" autoCapitalize="none" spellCheck={false} value={link.url} maxLength={2048} required onChange={e => updateLink({ url: e.target.value })} />}</Field>
+        {isCopyableLink(link) ? (
+          <Field name={`links.${index}.url`} label="Discord username" hint="Visitors can click this link to copy your Discord username." errors={errors}>{props => <input {...props} type="text" autoCapitalize="none" spellCheck={false} placeholder="username" value={link.url} maxLength={100} required onChange={e => updateLink({ url: e.target.value })} />}</Field>
+        ) : (
+          <Field name={`links.${index}.url`} label="URL" errors={errors}>{props => <input {...props} type="url" inputMode="url" autoCapitalize="none" spellCheck={false} value={link.url} maxLength={2048} required onChange={e => updateLink({ url: e.target.value })} />}</Field>
+        )}
         <Field name={`links.${index}.icon`} label="Social icon" errors={errors}>{props => <select {...props} value={link.icon ?? ""} onChange={e => {
           const icon = socialIcons.find(value => value === e.target.value);
           if (icon) updateLink({ icon });

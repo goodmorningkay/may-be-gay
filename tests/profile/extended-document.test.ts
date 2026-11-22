@@ -30,6 +30,30 @@ describe("additive v1 document contract", () => {
     }
     expect(profileDocumentSchema.safeParse({ ...doc, links: [{ ...doc.links[0], icon: "<svg/onload=evil()>" }] }).success).toBe(false);
   });
+  it("allows Discord links to store a username instead of a URL while rejecting blank or control-character handles", () => {
+    const doc = createExampleProfile();
+    for (const handle of ["alex_dev", "@alex.example", "Alex#1234", "a".repeat(100)]) {
+      const parsed = profileDocumentSchema.safeParse({
+        ...doc,
+        links: [{ ...doc.links[0], icon: "discord", label: "Discord", url: handle }],
+      });
+      expect(parsed.success, handle).toBe(true);
+      if (parsed.success) expect(parsed.data.links[0].url).toBe(handle);
+    }
+    for (const bad of ["", "   ", "alex\nname", "alex\u0000name", "a".repeat(101)]) {
+      const parsed = profileDocumentSchema.safeParse({
+        ...doc,
+        links: [{ ...doc.links[0], icon: "discord", label: "Discord", url: bad }],
+      });
+      expect(parsed.success, JSON.stringify(bad)).toBe(false);
+      if (!parsed.success) expect(parsed.error.issues[0]?.path.join(".")).toBe("links.0.url");
+    }
+    // Non-Discord icons still require a complete HTTP/HTTPS URL.
+    expect(profileDocumentSchema.safeParse({
+      ...doc,
+      links: [{ ...doc.links[0], icon: "github", label: "GitHub", url: "alex_dev" }],
+    }).success).toBe(false);
+  });
   it.each([
     { avatarAssetId: "https://evil.example/avatar.png" },
     { backgroundAssetId: "data:image/png,evil" },

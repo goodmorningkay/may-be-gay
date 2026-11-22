@@ -25,6 +25,15 @@ export const linkUrlSchema = z.string().max(2048).refine(
   "Use a complete HTTP or HTTPS URL without credentials, whitespace, controls or backslashes.",
 );
 
+export const discordHandleSchema = z
+  .string()
+  .min(1, "Enter a Discord username.")
+  .max(100, "Discord username must be 100 characters or fewer.")
+  .refine(
+    (value) => value.trim().length > 0 && !/[\u0000-\u001f\u007f-\u009f]/u.test(value),
+    "Enter a Discord username without control characters.",
+  );
+
 export const socialLinkIcons = [
   "website",
   "github",
@@ -35,19 +44,36 @@ export const socialLinkIcons = [
   "x",
   "youtube",
   "twitch",
+  "discord",
   "linkedin",
   "spotify",
 ] as const;
+
+export function isCopyableLink(link: { icon?: (typeof socialLinkIcons)[number] }): boolean {
+  return link.icon === "discord";
+}
 
 const linkSchema = z
   .object({
     id: z.string().uuid(),
     label: z.string().min(1).max(100),
-    url: linkUrlSchema,
+    url: z.string(),
     visible: z.boolean(),
     icon: z.enum(socialLinkIcons).optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((link, context) => {
+    const check = isCopyableLink(link) ? discordHandleSchema.safeParse(link.url) : linkUrlSchema.safeParse(link.url);
+    if (!check.success) {
+      for (const issue of check.error.issues) {
+        context.addIssue({
+          code: "custom",
+          path: ["url"],
+          message: issue.message,
+        });
+      }
+    }
+  });
 
 export const hexColorSchema = z.string().regex(/^#[0-9a-f]{6}$/i, "Use a six-digit hex colour.");
 
