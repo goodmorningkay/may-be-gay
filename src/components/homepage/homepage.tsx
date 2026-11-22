@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { UsernameTakenDialog } from "../username-taken-dialog";
 import styles from "./homepage.module.css";
 
 const features = [
@@ -35,12 +36,17 @@ function ProfilePreview() {
   );
 }
 
-export function Homepage({ appOrigin, domain, rejectedUsername }: {
+export function Homepage({ appOrigin, domain, rejectedUsername, takenUsername }: {
   appOrigin: string;
   domain: string;
   rejectedUsername?: string;
+  takenUsername?: string;
 }) {
-  const invalid = rejectedUsername !== undefined;
+  const invalid = takenUsername !== undefined || rejectedUsername !== undefined;
+  const initialUsername = takenUsername ?? rejectedUsername;
+  const errorMessage = takenUsername
+    ? `${takenUsername}.${domain} is already taken. Choose another username.`
+    : "Choose another username.";
   return (
     <div className={styles.page}>
       <div className={styles.container}>
@@ -61,7 +67,7 @@ export function Homepage({ appOrigin, domain, rejectedUsername }: {
                 <label htmlFor="homepage-username">Username</label>
                 <div className={styles.claimControls}>
                   <div className={styles.addressField}>
-                    <input id="homepage-username" name="username" placeholder="yourname" defaultValue={rejectedUsername}
+                    <input id="homepage-username" name="username" placeholder="yourname" defaultValue={initialUsername}
                       required minLength={3} maxLength={30} pattern={"[a-z0-9][a-z0-9\\-]{1,28}[a-z0-9]"}
                       title="Use 3–30 lowercase letters, numbers or hyphens. Start and end with a letter or number."
                       autoComplete="off" autoCapitalize="none" spellCheck={false}
@@ -70,7 +76,7 @@ export function Homepage({ appOrigin, domain, rejectedUsername }: {
                   </div>
                   <button type="submit">Claim address</button>
                 </div>
-                {invalid && <p id="homepage-username-error" role="alert">Choose another username.</p>}
+                {invalid && <p id="homepage-username-error" role="alert">{errorMessage}</p>}
               </form>
             </div>
             <ProfilePreview />
@@ -86,6 +92,14 @@ export function Homepage({ appOrigin, domain, rejectedUsername }: {
           <nav aria-label="Legal"><Link href="/privacy">Privacy</Link><Link href="/terms">Terms</Link></nav>
         </footer>
       </div>
+      {takenUsername && (
+        <UsernameTakenDialog
+          username={takenUsername}
+          siteDomain={domain}
+          signInHref={`${appOrigin}/sign-in`}
+          focusInputId="homepage-username"
+        />
+      )}
     </div>
   );
 }

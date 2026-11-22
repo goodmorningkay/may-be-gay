@@ -7,6 +7,16 @@ import { user, usernameClaims, profiles, profileDrafts, session, twoFactor } fro
 import { requireUser } from "./auth/session";
 import { AppError } from "./http";
 
+export async function isUsernameClaimed(username: string): Promise<boolean> {
+  if (!isValidUsername(username)) return false;
+  const [claim] = await getDatabase()
+    .select({ username: usernameClaims.username })
+    .from(usernameClaims)
+    .where(eq(usernameClaims.username, username))
+    .limit(1);
+  return Boolean(claim);
+}
+
 export async function claimUsername(input: Request | Headers, username: string) {
   const principal = await requireUser(input);
   if (!isValidUsername(username)) throw new AppError(400, "INVALID_USERNAME", "Choose a valid, available username.");

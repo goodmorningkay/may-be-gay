@@ -5,6 +5,7 @@ import Link from "next/link";
 import type { RegistrationMode } from "@/domain/registration";
 import { withClaimUsername } from "@/domain/username-intent";
 import chrome from "../site-chrome.module.css";
+import { UsernameTakenDialog } from "../username-taken-dialog";
 import styles from "./onboarding.module.css";
 import { OnboardingScreen } from "./onboarding-screen";
 
@@ -26,11 +27,17 @@ const copy = {
   "two-factor": { title: "Confirm your sign-in", action: "Verify code" },
 } satisfies Record<Mode, { title: string; action: string }>;
 
-export function AuthForm({ mode, verificationStatus, claimUsername, siteDomain = "may-be.gay", registrationMode }: {
-  mode: Mode; verificationStatus?: "success" | "error"; claimUsername?: string; siteDomain?: string; registrationMode?: RegistrationMode;
+export function AuthForm({ mode, verificationStatus, claimUsername, takenUsername, siteDomain = "may-be.gay", registrationMode }: {
+  mode: Mode; verificationStatus?: "success" | "error"; claimUsername?: string; takenUsername?: string; siteDomain?: string; registrationMode?: RegistrationMode;
 }) {
-  const [message, setMessage] = useState(verificationStatus === "error" ? "This verification link is invalid or expired." : "");
-  const [failure, setFailure] = useState(verificationStatus === "error");
+  const [message, setMessage] = useState(
+    verificationStatus === "error"
+      ? "This verification link is invalid or expired."
+      : mode === "sign-up" && takenUsername
+        ? `${takenUsername}.${siteDomain} is already taken. You can still create an account and choose a different username.`
+        : "",
+  );
+  const [failure, setFailure] = useState(verificationStatus === "error" || (mode === "sign-up" && Boolean(takenUsername)));
   const [complete, setComplete] = useState(false);
   const [busy, setBusy] = useState(false);
   const [recovery, setRecovery] = useState(false);
@@ -149,5 +156,13 @@ export function AuthForm({ mode, verificationStatus, claimUsername, siteDomain =
     {mode === "sign-in" && <nav className={styles.nav} aria-label="Account">New here? <Link href={withClaimUsername("/sign-up", claimUsername)}>Create an account</Link></nav>}
     {mode === "sign-up" && <nav className={styles.nav} aria-label="Account">{privacyLink}<Link href={signIn} prefetch={false}>Sign in</Link></nav>}
     {(mode === "verify-email" || mode === "forgot-password") && <nav className={styles.nav} aria-label="Account"><Link href={signIn} prefetch={false}>{mode === "verify-email" ? "Sign in" : "Back to sign in"}</Link></nav>}
+    {mode === "sign-up" && takenUsername && (
+      <UsernameTakenDialog
+        username={takenUsername}
+        siteDomain={siteDomain}
+        signInHref="/sign-in"
+        dismissLabel="Continue without this username"
+      />
+    )}
   </OnboardingScreen>;
 }

@@ -6,6 +6,7 @@ import { Homepage } from "@/components/homepage/homepage";
 import { ProfileView } from "@/components/profile-view";
 import { getSiteDomain, resolveHost } from "@/domain/hosts";
 import { readClaimUsername, withClaimUsername } from "@/domain/username-intent";
+import { isUsernameClaimed } from "@/server/accounts";
 import { appOrigin } from "@/server/http";
 import { getPublishedProfile } from "@/server/profiles";
 import { PublicAnalytics } from "@/components/operations/public-analytics";
@@ -48,7 +49,12 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ u
   const { username: requestedUsername } = await searchParams;
   const username = readClaimUsername(requestedUsername);
   const origin = appOrigin();
-  if (username) redirect(`${origin}${withClaimUsername("/sign-up", username)}`);
+  if (username) {
+    if (await isUsernameClaimed(username)) {
+      return <Homepage appOrigin={origin} domain={domain} takenUsername={username} />;
+    }
+    redirect(`${origin}${withClaimUsername("/sign-up", username)}`);
+  }
   const rejectedUsername = requestedUsername === undefined ? undefined
     : typeof requestedUsername === "string" ? requestedUsername.slice(0, 30) : "";
   return <Homepage appOrigin={origin} domain={domain} rejectedUsername={rejectedUsername} />;

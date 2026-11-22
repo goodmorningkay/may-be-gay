@@ -8,6 +8,7 @@ import { OnboardingScreen } from "../auth/onboarding-screen";
 import onboarding from "../auth/onboarding.module.css";
 import { SiteHeader } from "../site-chrome";
 import chrome from "../site-chrome.module.css";
+import { UsernameTakenDialog } from "../username-taken-dialog";
 import { ProfileEditor } from "./profile-editor";
 
 export function EditorEntry({ accountId, siteDomain, initialUsername = "" }: { accountId: string; siteDomain: string; initialUsername?: string }) {
@@ -16,6 +17,7 @@ export function EditorEntry({ accountId, siteDomain, initialUsername = "" }: { a
   const [username, setUsername] = useState(initialUsername);
   const [busy, setBusy] = useState(true);
   const [problem, setProblem] = useState<EditorRequestError | null>(null);
+  const [takenUsername, setTakenUsername] = useState<string | undefined>(undefined);
   const mounted = useRef(false);
   async function load() {
     setBusy(true); setProblem(null);
@@ -29,11 +31,18 @@ export function EditorEntry({ accountId, siteDomain, initialUsername = "" }: { a
   useEffect(() => { mounted.current = true; const timer = setTimeout(() => { void load(); }, 0); return () => { mounted.current = false; clearTimeout(timer); }; }, []);
   async function submit(event: React.FormEvent) {
     event.preventDefault(); if (!isValidUsername(username)) return;
-    setBusy(true); setProblem(null);
+    setBusy(true); setProblem(null); setTakenUsername(undefined);
     try {
       await requestJson("/api/account/username", { method: "POST", headers: { "content-type": "application/json", "x-account-id": accountId }, body: JSON.stringify({ username }) });
       if (mounted.current) { setClaim(false); await load(); }
-    } catch (error) { if (mounted.current) { setProblem(error as EditorRequestError); setBusy(false); } }
+    } catch (error) {
+      if (mounted.current) {
+        const requestError = error as EditorRequestError;
+        setProblem(requestError);
+        if (requestError.code === "USERNAME_UNAVAILABLE") setTakenUsername(username);
+        setBusy(false);
+      }
+    }
   }
   if (state) return <ProfileEditor initial={state} siteDomain={siteDomain} />;
   const invalid = Boolean(username && !isValidUsername(username));
@@ -63,5 +72,13 @@ export function EditorEntry({ accountId, siteDomain, initialUsername = "" }: { a
         <nav className={onboarding.nav} aria-label="Account"><a href="/account/security">Security</a></nav>
       </OnboardingScreen>
     </main>
+    {takenUsername && (
+      <UsernameTakenDialog
+        username={takenUsername}
+        siteDomain={siteDomain}
+        focusInputId="claim-username"
+        onDismiss={() => setTakenUsername(undefined)}
+      />
+    )}
   </div></div>;
 }
