@@ -47,8 +47,10 @@ export async function lockSignupAdmission(tx: Transaction, email: string, invite
   const [settings] = await tx.select().from(serviceSettings).where(eq(serviceSettings.id, true)).for("update");
   if (settings.registrationMode === "closed") throw unavailable();
 
-  const [count] = await tx.select({ n: sql<number>`count(*)::int` }).from(user);
-  if (count.n >= Math.min(settings.accountLimit, 50)) throw unavailable();
+  if (settings.accountLimit !== null) {
+    const [count] = await tx.select({ n: sql<number>`count(*)::int` }).from(user);
+    if (count.n >= settings.accountLimit) throw unavailable();
+  }
   if (settings.registrationMode === "public" && inviteToken === undefined) return;
   if (!inviteToken || !/^[a-zA-Z0-9_-]{43}$/.test(inviteToken)) throw unavailable();
   const [invite] = await tx.select({ id: invites.id }).from(invites).where(and(eq(invites.tokenHash, hashInviteToken(inviteToken)), eq(invites.email, email), isNull(invites.revokedAt), isNull(invites.redeemedAt), gt(invites.expiresAt, new Date()))).for("update");

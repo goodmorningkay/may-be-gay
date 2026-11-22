@@ -129,7 +129,7 @@ exists. All private pages are force-dynamic/noindex.
 { action: "remove-media", userId: string, mediaId: UUID }
 { action: "quota", userId: string, bytes: number /* integer 0..1 TiB */ }
 { action: "settings", registrationMode: "closed"|"invite"|"public", uploadsPaused: boolean,
-  accountLimit: number /* integer 1..50 */, totalMediaLimitBytes: number /* integer 0..1 TiB */ }
+  accountLimit?: number | null /* optional integer 1..100000; null/omitted = no limit */, totalMediaLimitBytes: number /* integer 0..1 TiB */ }
 ```
 
 Public mode is the default for new installations. Existing installations can

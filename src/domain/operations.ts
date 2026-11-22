@@ -19,7 +19,7 @@ export const adminActionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("suspend"), userId: z.string().min(1).max(128), scope: z.enum(["account", "profile"]), suspended: z.boolean() }).strict(),
   z.object({ action: z.literal("remove-media"), userId: z.string().min(1).max(128), mediaId: z.uuid() }).strict(),
   z.object({ action: z.literal("quota"), userId: z.string().min(1).max(128), bytes: z.number().int().min(0).max(1024 ** 4) }).strict(),
-  z.object({ action: z.literal("settings"), registrationMode: z.enum(registrationModes), uploadsPaused: z.boolean(), accountLimit: z.number().int().min(1).max(50), totalMediaLimitBytes: z.number().int().min(0).max(1024 ** 4) }).strict(),
+  z.object({ action: z.literal("settings"), registrationMode: z.enum(registrationModes), uploadsPaused: z.boolean(), accountLimit: z.number().int().min(1).max(100_000).nullable().default(null), totalMediaLimitBytes: z.number().int().min(0).max(1024 ** 4) }).strict(),
   z.object({ action: z.literal("invite"), email: z.email().max(254), expiresInHours: z.number().int().min(1).max(168).default(72) }).strict(),
   z.object({ action: z.literal("revoke-invite"), id: z.uuid() }).strict(),
 ]);
