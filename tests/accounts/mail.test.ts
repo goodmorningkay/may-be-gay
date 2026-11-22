@@ -1,12 +1,13 @@
 import { mkdtemp, readFile, readdir, rm, stat, chmod, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import nodemailer from "nodemailer";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { processEmailJob } from "@/server/mail";
+import { isMailConfigured, processEmailJob } from "@/server/mail";
 
 describe("private local mail and explicit provider configuration", () => {
   let directory: string | undefined;
-  afterEach(async () => { vi.unstubAllEnvs(); if (directory) await rm(directory, { recursive: true, force: true }); directory = undefined; });
+  afterEach(async () => { vi.restoreAllMocks(); vi.unstubAllEnvs(); if (directory) await rm(directory, { recursive: true, force: true }); directory = undefined; });
   const job = { id: "local-email-test", payload: { template: "verification", to: "owner@example.invalid", url: "https://app.may-be.localhost/api/auth/verify-email?token=private-token" } };
   it("writes idempotent private files atomically without logging secrets", async () => {
     directory = await mkdtemp(join(tmpdir(), "accounts-mail-"));
@@ -29,5 +30,51 @@ describe("private local mail and explicit provider configuration", () => {
     const fetcher = vi.spyOn(globalThis, "fetch");
     await expect(processEmailJob(job)).rejects.toThrow("MAIL_NOT_CONFIGURED");
     expect(fetcher).not.toHaveBeenCalled();
+  });
+  it("sends authenticated STARTTLS SMTP mail only when explicitly enabled and redacts provider errors", async () => {
+    vi.stubEnv("SITE_DOMAIN", "may-be.localhost");
+    vi.stubEnv("MAIL_TRANSPORT", "smtp");
+    vi.stubEnv("MAIL_ALLOW_LIVE", "false");
+    vi.stubEnv("SMTP_HOST", "smtp.purelymail.com");
+    vi.stubEnv("SMTP_PORT", "587");
+    vi.stubEnv("SMTP_USER", "noreply@may-be.gay");
+    vi.stubEnv("SMTP_PASS", "app-password");
+    vi.stubEnv("MAIL_FROM", "noreply@may-be.gay");
+    const createTransport = vi.spyOn(nodemailer, "createTransport");
+    expect(isMailConfigured()).toBe(false);
+    await expect(processEmailJob(job)).rejects.toThrow("MAIL_NOT_CONFIGURED");
+    expect(createTransport).not.toHaveBeenCalled();
+
+    vi.stubEnv("MAIL_ALLOW_LIVE", "true");
+    vi.stubEnv("SMTP_PORT", "not-a-port");
+    expect(isMailConfigured()).toBe(false);
+    await expect(processEmailJob(job)).rejects.toThrow("MAIL_NOT_CONFIGURED");
+
+    vi.stubEnv("SMTP_PORT", "587");
+    expect(isMailConfigured()).toBe(true);
+    const sendMail = vi.fn().mockResolvedValue({ messageId: "ok" });
+    const close = vi.fn();
+    createTransport.mockReturnValue({ sendMail, close } as unknown as ReturnType<typeof nodemailer.createTransport>);
+
+    await processEmailJob(job);
+    expect(createTransport).toHaveBeenCalledWith(expect.objectContaining({
+      host: "smtp.purelymail.com",
+      port: 587,
+      secure: false,
+      requireTLS: true,
+      auth: { user: "noreply@may-be.gay", pass: "app-password" },
+      tls: { minVersion: "TLSv1.2", rejectUnauthorized: true },
+    }));
+    expect(sendMail).toHaveBeenCalledWith(expect.objectContaining({
+      from: "noreply@may-be.gay",
+      to: "owner@example.invalid",
+      subject: "Verify your may-be.gay email",
+      messageId: "<mbg-email-local-email-test@may-be.localhost>",
+    }));
+    expect(close).toHaveBeenCalledTimes(1);
+
+    sendMail.mockRejectedValueOnce(new Error("535 5.7.8 Authentication failed for noreply@may-be.gay"));
+    await expect(processEmailJob(job)).rejects.toThrow("EMAIL_DELIVERY_FAILED");
+    expect(close).toHaveBeenCalledTimes(2);
   });
 });

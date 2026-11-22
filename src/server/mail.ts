@@ -2,7 +2,9 @@ import "server-only";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, open, realpath, stat, link, unlink, readFile } from "node:fs/promises";
 import path from "node:path";
+import nodemailer from "nodemailer";
 import { z } from "zod";
+import { getSiteDomain } from "../domain/hosts";
 import { getDatabase } from "./db";
 import type { Transaction } from "./db/types";
 import { jobs } from "./db/schema";
@@ -13,6 +15,21 @@ export const mailPayloadSchema = z.object({
   to: z.email().max(254), url: z.url().max(4096),
 }).strict();
 export type MailPayload = z.infer<typeof mailPayloadSchema>;
+
+function smtpConfiguration(env: NodeJS.ProcessEnv = process.env) {
+  if (env.MAIL_TRANSPORT !== "smtp" || env.MAIL_ALLOW_LIVE !== "true") return null;
+  const host = env.SMTP_HOST?.trim(), user = env.SMTP_USER?.trim(), pass = env.SMTP_PASS, from = env.MAIL_FROM?.trim();
+  const rawPort = env.SMTP_PORT?.trim() || "587";
+  const port = /^\d+$/.test(rawPort) ? Number(rawPort) : NaN;
+  if (!host || /\s/.test(host) || !user || !pass || !from || !Number.isInteger(port) || port < 1 || port > 65535) return null;
+  return { host, port, user, pass, from };
+}
+
+export function isMailConfigured(env: NodeJS.ProcessEnv = process.env): boolean {
+  if (env.MAIL_TRANSPORT === "local") return !!env.MAIL_OUTBOX_DIR;
+  if (env.MAIL_TRANSPORT === "smtp") return smtpConfiguration(env) !== null;
+  return env.MAIL_TRANSPORT === "resend" && env.MAIL_ALLOW_LIVE === "true" && !!env.RESEND_API_KEY && !!env.MAIL_FROM;
+}
 export async function enqueueMail(payload: MailPayload, ownerId?: string, tx?: Transaction) {
   const valid = mailPayloadSchema.parse(payload);
   if (new URL(valid.url).origin !== appOrigin()) throw new Error("Invalid mail destination");
@@ -46,6 +63,33 @@ export async function processEmailJob(job: { id: string; payload: unknown }): Pr
       try { await dir.sync(); } finally { await dir.close(); }
     } catch { throw new Error("LOCAL_MAIL_WRITE_FAILED"); }
     finally { await unlink(temporary).catch(() => {}); }
+    return;
+  }
+  if (process.env.MAIL_TRANSPORT === "smtp") {
+    const config = smtpConfiguration();
+    if (!config) throw new Error("MAIL_NOT_CONFIGURED");
+    const transport = nodemailer.createTransport({
+      host: config.host,
+      port: config.port,
+      secure: config.port === 465,
+      requireTLS: config.port !== 465,
+      auth: { user: config.user, pass: config.pass },
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+      socketTimeout: 15000,
+      tls: { minVersion: "TLSv1.2", rejectUnauthorized: true },
+    });
+    try {
+      await transport.sendMail({
+        from: config.from,
+        ...message,
+        messageId: `<mbg-email-${job.id}@${getSiteDomain()}>`,
+      });
+    } catch {
+      throw new Error("EMAIL_DELIVERY_FAILED");
+    } finally {
+      transport.close();
+    }
     return;
   }
   if (process.env.MAIL_TRANSPORT !== "resend" || process.env.MAIL_ALLOW_LIVE !== "true" || !process.env.RESEND_API_KEY || !process.env.MAIL_FROM) throw new Error("MAIL_NOT_CONFIGURED");

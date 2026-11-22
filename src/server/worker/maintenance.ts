@@ -4,10 +4,11 @@ import { privateDirectory } from "../recovery/files";
 import { randomUUID } from "node:crypto";
 import { enqueueMediaSweep } from "../media/jobs";
 import { sweepMediaScratch } from "../media/validation";
+import { isMailConfigured } from "../mail";
 import { operationsMaintenance } from "../operations/maintenance";
 import type { WorkerSql } from "./queue";
 export function readiness() {
-  return { mail: process.env.MAIL_TRANSPORT === "local" ? !!process.env.MAIL_OUTBOX_DIR : process.env.MAIL_TRANSPORT === "resend" && process.env.MAIL_ALLOW_LIVE === "true" && !!process.env.RESEND_API_KEY && !!process.env.MAIL_FROM,
+  return { mail: isMailConfigured(),
     storage: process.env.MEDIA_STORAGE === "local" ? !!process.env.MEDIA_LOCAL_ROOT : process.env.MEDIA_STORAGE === "s3" && ["MEDIA_S3_ENDPOINT", "MEDIA_S3_REGION", "MEDIA_PRIVATE_BUCKET", "MEDIA_PUBLIC_BUCKET", "MEDIA_S3_ACCESS_KEY_ID", "MEDIA_S3_SECRET_ACCESS_KEY", "MEDIA_PUBLIC_ORIGIN"].every(k => !!process.env[k]),
     purge: process.env.MEDIA_STORAGE === "local" ? !!process.env.MEDIA_LOCAL_ROOT : process.env.MEDIA_STORAGE === "s3" && ["MEDIA_CLOUDFLARE_ZONE_ID", "MEDIA_CLOUDFLARE_PURGE_TOKEN", "MEDIA_PUBLIC_ORIGIN"].every(k => !!process.env[k]),
     backup: !!process.env.BACKUP_KEY_FILE && !!process.env.BACKUP_KEY_ID && !!process.env.BACKUP_LOCAL_ROOT
