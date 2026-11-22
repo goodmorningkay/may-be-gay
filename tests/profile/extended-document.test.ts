@@ -52,6 +52,8 @@ describe("additive v1 document contract", () => {
     expect(getThemeContrast(defaultProfileDocument.theme).readable).toBe(true);
     expect(getThemeContrast({ ...defaultProfileDocument.theme, colors: { ink: "#fffdf7" } }).readable).toBe(false);
     expect(getThemeColors({ ...defaultProfileDocument.theme, colors: { ink: "#111111" } }).muted).toBe("#111111");
+    expect(getThemeColors({ ...defaultProfileDocument.theme, colors: { accent: "#333333" } }).border).toBe("#333333");
+    expect(getThemeColors({ ...defaultProfileDocument.theme, preset: "midnight", colors: { ink: "#ffffff" } }).border).toBe("#6d7a91");
     expect(() => contrastRatio("url(evil)", "#ffffff")).toThrow();
   });
 });

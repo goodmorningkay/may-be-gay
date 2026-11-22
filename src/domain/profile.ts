@@ -184,6 +184,7 @@ export function getThemeColors(theme: ProfileDocument["theme"]) {
   const base = profilePalettes[theme.preset];
   return { ...base, ...theme.colors,
     ...(theme.colors?.ink ? { muted: theme.colors.ink } : {}),
+    ...(theme.colors?.accent ? { border: theme.colors.accent } : {}),
     ...(theme.background?.kind === "solid" ? { background: theme.background.color } : {}),
   };
 }
