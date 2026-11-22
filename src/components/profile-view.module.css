@@ -163,7 +163,7 @@
 .empty { margin: 0; padding: 13px 0; color: var(--muted); text-align: center; }
 .footer { display: grid; justify-items: center; gap: 3px; margin-top: var(--profile-gap); padding-block: 14px 0; border-top: 1px solid var(--border); color: var(--muted); font-size: 13px; text-align: center; }
 .attribution { margin: 0; }
-.footer a { display: inline-flex; align-items: center; min-height: 30px; color: var(--accent); text-underline-offset: .2em; }
+.footer a { display: inline-flex; align-items: center; min-height: 30px; color: inherit; text-underline-offset: .2em; }
 .attribution a { display: inline; font-family: var(--mono-font); }
 .profile[data-photo] .footer {
   padding: 11px 12px 8px;

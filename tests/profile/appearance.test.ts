@@ -41,6 +41,11 @@ describe("preset accessibility contracts", () => {
     },
   );
 
+  it("keeps platform footer links aligned with the footer text color instead of accent", () => {
+    expect(css).toMatch(/\.footer\s*\{[^}]*color:\s*var\(--muted\)/);
+    expect(css).toMatch(/\.footer a\s*\{[^}]*color:\s*inherit/);
+  });
+
   it("includes keyboard focus and disables hover motion for reduced-motion visitors", () => {
     expect(css).toMatch(/a:focus-visible\s*\{[^}]*outline:\s*3px solid var\(--focus\)/);
     const reducedMotion = css.slice(css.indexOf("@media (prefers-reduced-motion: reduce)"));
