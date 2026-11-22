@@ -13,7 +13,7 @@ WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg util-linux tini ca-certificates libpq5 liblz4-1 libzstd1 \
     && rm -rf /var/lib/apt/lists/* \
-    && mkdir -p /app/var/media /app/var/mail /app/var/service /app/var/logs /app/var/recovery /app/var/native \
+    && mkdir -p /app/var/media /app/var/mail /app/var/service /app/var/logs /app/var/recovery /app/var/native /app/var/backups /app/var/secrets \
     && chown -R node:node /app/var && chmod 700 /app/var/*
 COPY --from=guardian-builder --chmod=0755 /build/may-be-guardian /usr/local/libexec/may-be-guardian
 ENTRYPOINT ["/usr/bin/tini", "-s", "--"]

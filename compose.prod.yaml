@@ -1,0 +1,202 @@
+name: may-be-gay
+
+x-bounded-logs: &bounded-logs
+  driver: local
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-runtime-environment: &runtime-environment
+  NODE_ENV: production
+  SITE_DOMAIN: ${SITE_DOMAIN:-may-be.gay}
+  DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+  BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET is required}
+  MAIL_TRANSPORT: ${MAIL_TRANSPORT:-smtp}
+  MAIL_ALLOW_LIVE: ${MAIL_ALLOW_LIVE:-true}
+  MAIL_FROM: ${MAIL_FROM:?MAIL_FROM is required}
+  SMTP_HOST: ${SMTP_HOST:-smtp.purelymail.com}
+  SMTP_PORT: ${SMTP_PORT:-587}
+  SMTP_USER: ${SMTP_USER:?SMTP_USER is required}
+  SMTP_PASS: ${SMTP_PASS:?SMTP_PASS is required}
+  MAIL_DAILY_QUOTA: ${MAIL_DAILY_QUOTA:-100}
+  MEDIA_STORAGE: s3
+  MEDIA_S3_ENDPOINT: ${MEDIA_S3_ENDPOINT:?MEDIA_S3_ENDPOINT is required}
+  MEDIA_S3_REGION: ${MEDIA_S3_REGION:-auto}
+  MEDIA_PRIVATE_BUCKET: ${MEDIA_PRIVATE_BUCKET:?MEDIA_PRIVATE_BUCKET is required}
+  MEDIA_PUBLIC_BUCKET: ${MEDIA_PUBLIC_BUCKET:?MEDIA_PUBLIC_BUCKET is required}
+  MEDIA_S3_ACCESS_KEY_ID: ${MEDIA_S3_ACCESS_KEY_ID:?MEDIA_S3_ACCESS_KEY_ID is required}
+  MEDIA_S3_SECRET_ACCESS_KEY: ${MEDIA_S3_SECRET_ACCESS_KEY:?MEDIA_S3_SECRET_ACCESS_KEY is required}
+  MEDIA_PUBLIC_ORIGIN: ${MEDIA_PUBLIC_ORIGIN:-https://media.may-be.gay}
+  MEDIA_CLOUDFLARE_ZONE_ID: ${MEDIA_CLOUDFLARE_ZONE_ID:?MEDIA_CLOUDFLARE_ZONE_ID is required}
+  MEDIA_CLOUDFLARE_PURGE_TOKEN: ${MEDIA_CLOUDFLARE_PURGE_TOKEN:?MEDIA_CLOUDFLARE_PURGE_TOKEN is required}
+  SERVICE_CLOSED_FILE: /app/var/service/SERVICE_CLOSED
+  BACKUP_WORK_ROOT: /app/var/recovery
+  BACKUP_LOCAL_ROOT: /app/var/backups
+  BACKUP_KEY_FILE: /app/var/secrets/backup.key
+  BACKUP_KEY_ID: ${BACKUP_KEY_ID:-prod-v1}
+  NATIVE_PARSER_LOCK_FILE: /app/var/native/parser.lock
+  OPERATIONS_LOG_ROOT: /app/var/logs
+  OPERATIONS_DISK_PATH: /app/var/backups
+  OPERATIONS_CERTIFICATES: ${OPERATIONS_CERTIFICATES:-false}
+  OPERATOR_IDENTITY: ${OPERATOR_IDENTITY:-}
+  OPERATOR_JURISDICTION: ${OPERATOR_JURISDICTION:-}
+  POLICY_AUDIENCE_AGE: ${POLICY_AUDIENCE_AGE:-}
+  POLICY_CONTENT_RULES: ${POLICY_CONTENT_RULES:-}
+  POLICY_MEDIA_RIGHTS_TAKEDOWN: ${POLICY_MEDIA_RIGHTS_TAKEDOWN:-}
+  SUPPORT_EMAIL: ${SUPPORT_EMAIL:-}
+  APPEALS_EMAIL: ${APPEALS_EMAIL:-}
+  POLICY_PRIVACY_NOTICE: ${POLICY_PRIVACY_NOTICE:-}
+  POLICY_TERMS: ${POLICY_TERMS:-}
+  POLICY_REVIEWED: ${POLICY_REVIEWED:-false}
+  SUPPORT_MONITORED: ${SUPPORT_MONITORED:-false}
+
+services:
+  db:
+    logging: *bounded-logs
+    mem_limit: 768m
+    image: postgres:17.11-bookworm@sha256:665dc7b37ac52a17e298511414c21d23ffa4e6a6ef6225b3e5d59c7afb35e994
+    environment:
+      POSTGRES_DB: may_be_gay
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      MIGRATION_DATABASE_PASSWORD: ${MIGRATION_DATABASE_PASSWORD:?MIGRATION_DATABASE_PASSWORD is required}
+      APP_DATABASE_PASSWORD: ${APP_DATABASE_PASSWORD:?APP_DATABASE_PASSWORD is required}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/postgres/bootstrap.sh:/docker-entrypoint-initdb.d/10-bootstrap.sh:ro
+      - ./infra/postgres/bootstrap.sql:/opt/may-be-gay/bootstrap.sql:ro
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -h 127.0.0.1 -U postgres -d may_be_gay"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    networks: [database]
+    restart: unless-stopped
+
+  migrate:
+    logging: *bounded-logs
+    build:
+      context: .
+      target: migrator
+    environment:
+      MIGRATION_DATABASE_URL: ${MIGRATION_DATABASE_URL:?MIGRATION_DATABASE_URL is required}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [database]
+    restart: "no"
+
+  app:
+    logging: *bounded-logs
+    mem_limit: 768m
+    cpus: 1.0
+    build:
+      context: .
+      target: runner
+    environment: *runtime-environment
+    volumes:
+      - service_state:/app/var/service:ro
+      - native_lock:/app/var/native
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "const h=require('node:http');const r=h.get({host:'127.0.0.1',port:3000,path:'/api/health',headers:{host:'app.'+process.env.SITE_DOMAIN}},s=>{s.resume();process.exit(s.statusCode===200?0:1)});r.on('error',()=>process.exit(1));r.setTimeout(4000,()=>{r.destroy();process.exit(1)});"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    networks: [web, database]
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      target: worker
+    environment:
+      <<: *runtime-environment
+      BACKUP_DATABASE_URL: ${BACKUP_DATABASE_URL:?BACKUP_DATABASE_URL is required}
+    volumes:
+      - service_state:/app/var/service:ro
+      - operations_logs:/app/var/logs
+      - recovery_work:/app/var/recovery
+      - backup_data:/app/var/backups
+      - native_lock:/app/var/native
+      - ./secrets/backup.key:/app/var/secrets/backup.key:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: [CMD, node, --conditions=react-server, --import, tsx, scripts/worker-health.ts]
+      interval: 15s
+      timeout: 10s
+      retries: 4
+      start_period: 20s
+    mem_limit: 1536m
+    cpus: 1.0
+    stop_grace_period: 30s
+    logging: *bounded-logs
+    networks: [web, database]
+    restart: unless-stopped
+
+  checks:
+    build:
+      context: .
+      target: worker
+    command: [node, --conditions=react-server, --import, tsx, scripts/check-operations.ts, --watch]
+    environment: *runtime-environment
+    volumes:
+      - backup_data:/app/var/backups:ro
+      - operations_logs:/app/var/logs
+    depends_on:
+      worker:
+        condition: service_healthy
+    mem_limit: 192m
+    cpus: 0.25
+    stop_grace_period: 40s
+    logging: *bounded-logs
+    networks: [web, database]
+    restart: unless-stopped
+
+  caddy:
+    logging: *bounded-logs
+    mem_limit: 128m
+    build:
+      context: ./infra/caddy
+      dockerfile: Dockerfile.prod
+    environment:
+      SITE_DOMAIN: ${SITE_DOMAIN:-may-be.gay}
+      CLOUDFLARE_DNS_API_TOKEN: ${CLOUDFLARE_DNS_API_TOKEN:?CLOUDFLARE_DNS_API_TOKEN is required}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./infra/caddy/Caddyfile.prod:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      app:
+        condition: service_healthy
+    networks: [web]
+    restart: unless-stopped
+
+networks:
+  web:
+  database:
+    internal: true
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:
+  service_state:
+  operations_logs:
+  recovery_work:
+  backup_data:
+  native_lock:
