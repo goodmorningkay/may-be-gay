@@ -73,6 +73,8 @@ test("A account screen with a fresh B session cannot export or delete B", async 
 test("native auth and security submissions keep every credential out of URLs with JavaScript disabled", async ({ page, browser, context, expectedErrors }) => {
   expectedErrors.push(/^Console: Failed to load resource: the server responded with a status of (400|404).*\[https:\/\/app\.may-be\.localhost\/api\/(profile|account\/form-help)\]$/);
   await account(page, `review-nojs-${randomBytes(3).toString("hex")}`);
+  const anonNativeContext = await browser.newContext({ ignoreHTTPSErrors: true, javaScriptEnabled: false });
+  const checkAnon = await observeContext(anonNativeContext, expectedErrors);
   const nativeContext = await browser.newContext({ ignoreHTTPSErrors: true, javaScriptEnabled: false, storageState: await context.storageState() });
   const check = await observeContext(nativeContext, expectedErrors);
   const dummy: Record<string, string> = {
@@ -81,43 +83,46 @@ test("native auth and security submissions keep every credential out of URLs wit
     inviteToken: "dummy-private-invitation-token-60", code: "846291", username: "nojs-private-username",
   };
   const urls: string[] = [];
+  anonNativeContext.on("request", request => urls.push(request.url()));
   nativeContext.on("request", request => urls.push(request.url()));
+  const anonNative = await anonNativeContext.newPage();
   const native = await nativeContext.newPage();
-  async function submitForm(index: number) {
-    const form = native.locator("form").nth(index);
+  async function submitForm(target: typeof native, index: number) {
+    const form = target.locator("form").nth(index);
     expect(await form.getAttribute("method")).toBe("post");
     for (const input of await form.locator("input[name]").all()) {
       const name = (await input.getAttribute("name"))!;
       expect(dummy[name], `Unexpected credential form field ${name}`).toBeTruthy();
       await input.fill(dummy[name]);
     }
-    const submitted = native.waitForResponse(r => r.url() === `${app}/api/account/form-help` && r.request().method() === "POST");
+    const submitted = target.waitForResponse(r => r.url() === `${app}/api/account/form-help` && r.request().method() === "POST");
     await form.getByRole("button").filter({ hasNotText: /Use a recovery code/ }).last().click();
     const response = await submitted;
     expect(response.status()).toBe(400);
-    await expect(native.getByRole("heading", { name: "JavaScript required", exact: true })).toBeVisible();
+    await expect(target.getByRole("heading", { name: "JavaScript required", exact: true })).toBeVisible();
     expect(await response.text()).not.toContain("dummy-private");
-    expect(native.url()).toBe(`${app}/api/account/form-help`);
+    expect(target.url()).toBe(`${app}/api/account/form-help`);
   }
   try {
     for (const path of ["sign-in", "sign-up", "reset-password", "two-factor", "verify-email", "forgot-password"]) {
-      await native.goto(`${app}/${path}`);
+      await anonNative.goto(`${app}/${path}`);
       // Playwright's text matcher deliberately skips noscript elements even
       // when scripting is disabled. Check the rendered fallback directly.
-      await expect(native.locator("noscript")).toBeVisible();
-      expect(await native.locator("noscript").textContent()).toContain("Enable JavaScript");
-      await submitForm(0);
+      await expect(anonNative.locator("noscript")).toBeVisible();
+      expect(await anonNative.locator("noscript").textContent()).toContain("Enable JavaScript");
+      await submitForm(anonNative, 0);
     }
     await native.goto(`${app}/account/security`);
     const count = await native.locator("form").count(); expect(count).toBe(3);
     for (let i = 0; i < count; i++) {
-      await native.goto(`${app}/account/security`); await submitForm(i);
+      await native.goto(`${app}/account/security`); await submitForm(native, i);
     }
     for (const secret of Object.values(dummy)) {
       expect(urls.some(url => url.includes(secret) || url.includes(encodeURIComponent(secret)))).toBe(false);
+      expect(anonNative.url()).not.toContain(secret);
       expect(native.url()).not.toContain(secret);
     }
-  } finally { await nativeContext.close(); check(); }
+  } finally { await anonNativeContext.close(); checkAnon(); await nativeContext.close(); check(); }
 });
 
 test("native support selects only published targets and stores a private link/media report through Caddy", async ({ page, context, browser, expectedErrors }) => {

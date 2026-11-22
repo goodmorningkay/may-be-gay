@@ -35,6 +35,10 @@ test("homepage keeps the requested address through public signup and verificatio
   await expect(page.getByRole("textbox", { name: "Username" })).toHaveValue(username);
 
   await page.goto(apex);
+  await page.getByRole("link", { name: "Log in" }).click();
+  await expect(page).toHaveURL(`${app}/editor`);
+
+  await page.goto(apex);
   await page.getByRole("textbox", { name: "Username" }).fill(username);
   await page.getByRole("button", { name: "Claim address" }).click();
   await expect(page).toHaveURL(`${app}/editor?username=${username}`);
