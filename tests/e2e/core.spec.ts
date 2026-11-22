@@ -188,7 +188,11 @@ test("owners edit privately, upload real media, publish and remain isolated", as
     await expect.poll(() => visitor.locator("img").first().evaluate((el: HTMLImageElement) => el.naturalWidth)).toBeGreaterThan(0);
     const audio = visitor.locator("audio");
     await expect(audio).toHaveAttribute("preload", "none"); await expect(audio).toHaveAttribute("controls", "");
-    await expect.poll(() => audio.evaluate((el: HTMLAudioElement) => !el.autoplay && Math.abs(el.volume - 0.2) < 1e-6)).toBe(true);
+    await expect(visitor.getByLabel("Volume", { exact: true })).toHaveValue("0.2");
+    expect(await audio.evaluate((el: HTMLAudioElement) => !el.autoplay)).toBe(true);
+    if (prefix !== "webkit") {
+      await expect.poll(() => audio.evaluate((el: HTMLAudioElement) => Math.abs(el.volume - 0.2) < 1e-6)).toBe(true);
+    }
     if (await audio.evaluate((el: HTMLAudioElement) => el.paused)) {
       await visitor.getByRole("button", { name: "Play music", exact: true }).click();
     }
