@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHmac, randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -86,6 +86,38 @@ describe.skipIf(!testUrl)("operations on separate disposable PostgreSQL", () => 
     await h.db.update(sessionAssurance).set({ secondFactorAt: new Date() }).where(eq(sessionAssurance.sessionId, admin.principal.sessionId));
     const cross = request(admin.cookie, {}); cross.headers.set("origin", "https://evil.invalid");
     await expect(mutateAdmin(cross, { action: "quota", userId: a.id, bytes: 100 })).rejects.toMatchObject({ code: "ORIGIN_REJECTED" });
+  });
+  it("grants immediate admin read access after password + 2FA sign-in without redundant reauthentication", async () => {
+    const admin = await owner();
+    await h.db.update(user).set({ role: "admin" }).where(eq(user.id, admin.id));
+    await h.db.delete(sessionAssurance).where(eq(sessionAssurance.sessionId, admin.principal.sessionId));
+    const authPost = (p: string, body: unknown, cookie = "") =>
+      handleAuth(new Request(`${origin}/api/auth${p}`, { method: "POST", headers: headers(cookie), body: JSON.stringify(body) }));
+    const cookiesOf = (res: Response) => res.headers.getSetCookie().map(c => c.split(";", 1)[0]).join("; ");
+    const totpCode = (uri: string) => {
+      const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+      let bits = ""; for (const c of new URL(uri).searchParams.get("secret")!) bits += alphabet.indexOf(c).toString(2).padStart(5, "0");
+      const key = Buffer.from(bits.match(/.{8}/g)!.map(x => parseInt(x, 2)));
+      const counter = Buffer.alloc(8); counter.writeBigUInt64BE(BigInt(Math.floor(Date.now() / 30000)));
+      const digest = createHmac("sha1", key).update(counter).digest(); const offset = digest[19] & 15;
+      return ((digest.readUInt32BE(offset) & 0x7fffffff) % 1000000).toString().padStart(6, "0");
+    };
+    const enable = await authPost("/two-factor/enable", { password, method: "totp" }, admin.cookie);
+    expect(enable.status, await enable.clone().text()).toBe(200);
+    const setup = await enable.json() as { totpURI: string; backupCodes: string[] };
+    const enrolled = await authPost("/two-factor/verify-totp", { code: totpCode(setup.totpURI) }, admin.cookie);
+    expect(enrolled.status, await enrolled.clone().text()).toBe(200);
+    await expect(readAdmin(request(cookiesOf(enrolled) || admin.cookie), "reports")).resolves.toHaveProperty("rows");
+    const login = await authPost("/sign-in/email", { email: admin.email, password });
+    expect((await login.json()).twoFactorRedirect).toBe(true);
+    const verified = await authPost("/two-factor/verify-totp", { code: totpCode(setup.totpURI) }, cookiesOf(login));
+    expect(verified.status, await verified.clone().text()).toBe(200);
+    const signedInCookie = cookiesOf(verified);
+    await expect(readAdmin(request(signedInCookie), "reports")).resolves.toHaveProperty("rows");
+    const signedInPrincipal = (await getSession(headers(signedInCookie)))!;
+    await h.db.update(sessionAssurance).set({ reauthenticatedAt: new Date(Date.now() - 3600000) }).where(eq(sessionAssurance.sessionId, signedInPrincipal.sessionId));
+    expect((await authPost("/two-factor/verify-totp", { code: totpCode(setup.totpURI) }, signedInCookie)).status).toBe(200);
+    await expect(readAdmin(request(signedInCookie), "reports")).rejects.toMatchObject({ code: "REAUTHENTICATION_REQUIRED" });
   });
   it("issues recipient-bound invitations once, lists safe projections and atomically audits revocation", async () => {
     const admin = await owner(true);
