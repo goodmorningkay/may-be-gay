@@ -8,7 +8,7 @@ import styles from "./operations.module.css";
 type Row = Record<string, string | number | boolean | null>;
 type Data = {
   rows?: Row[];
-  settings?: { registrationMode: RegistrationMode; uploadsPaused: boolean; accountLimit: number; totalMediaLimitBytes: number };
+  settings?: { registrationMode: RegistrationMode; uploadsPaused: boolean; accountLimit: number | null; totalMediaLimitBytes: number };
 };
 const sections = { reports: "Reports", accounts: "Accounts", invites: "Invites", settings: "Settings", audit: "Audit" } as const;
 type Section = keyof typeof sections;
@@ -207,11 +207,14 @@ export function AdminPanel({ initial }: { initial: Data }) {
         {pager}
       </>}
       {section === "settings" && data.settings && <form method="post" action="/api/account/form-help" className={`${chrome.card} ${chrome.stack}`} key={JSON.stringify(data.settings)}
-        onSubmit={e => form(e, f => ({ action: "settings", registrationMode: f.get("registrationMode"), uploadsPaused: f.get("uploadsPaused") === "on", accountLimit: Number(f.get("accountLimit")), totalMediaLimitBytes: Number(f.get("totalMediaLimitBytes")) }))}>
+        onSubmit={e => form(e, f => {
+          const rawAccountLimit = String(f.get("accountLimit") ?? "").trim();
+          return { action: "settings", registrationMode: f.get("registrationMode"), uploadsPaused: f.get("uploadsPaused") === "on", accountLimit: rawAccountLimit === "" ? null : Number(rawAccountLimit), totalMediaLimitBytes: Number(f.get("totalMediaLimitBytes")) };
+        })}>
         <h3 className={styles.smallHeading}>Service limits</h3>
         <div className={chrome.field}><label htmlFor="registration-mode">Registration</label><select id="registration-mode" className={chrome.control} name="registrationMode" defaultValue={data.settings.registrationMode}><option value="closed">Closed</option><option value="invite">Invitation required</option><option value="public">Public</option></select></div>
         <label><input type="checkbox" name="uploadsPaused" defaultChecked={data.settings.uploadsPaused} /> Pause new uploads</label>
-        <label className={chrome.field}><span>Account limit (maximum 50)</span><input className={chrome.control} type="number" name="accountLimit" min={1} max={50} defaultValue={data.settings.accountLimit} required /></label>
+        <label className={chrome.field}><span>Account limit (optional, maximum 100,000)</span><input className={chrome.control} type="number" name="accountLimit" min={1} max={100000} placeholder="No limit" defaultValue={data.settings.accountLimit ?? ""} /></label>
         <label className={chrome.field}><span>Total storage limit in bytes</span><input className={chrome.control} type="number" name="totalMediaLimitBytes" min={0} max={1024 ** 4} defaultValue={data.settings.totalMediaLimitBytes} required /></label>
         <div><button className={chrome.primary} disabled={busy}>Save service limits</button></div>
       </form>}

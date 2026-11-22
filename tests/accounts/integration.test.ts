@@ -426,13 +426,16 @@ const password = "test account password 2048";
     await h.db.update(serviceSettings).set({ registrationMode: "public" });
     expect((await signup("cap-c@example.invalid")).status).toBe(202);
   });
-  it("enforces the hard 50-account cap even with a larger configured limit", async () => {
-    await h.db.insert(serviceSettings).values({ id: true, accountLimit: 100 });
-    await h.db.insert(user).values(Array.from({ length: 49 }, (_, n) => ({ id: `existing-${n}`, email: `existing-${n}@example.invalid`, name: "Existing" })));
-    const a = await issueInvite({ email: "fiftieth-a@example.invalid" }); const b = await issueInvite({ email: "fiftieth-b@example.invalid" });
+  it("allows configured limits above 50, serializes the final slot, and supports an optional unset limit", async () => {
+    await h.db.insert(serviceSettings).values({ id: true, accountLimit: 51 });
+    await h.db.insert(user).values(Array.from({ length: 50 }, (_, n) => ({ id: `existing-${n}`, email: `existing-${n}@example.invalid`, name: "Existing" })));
+    const a = await issueInvite({ email: "fiftyfirst-a@example.invalid" }); const b = await issueInvite({ email: "fiftyfirst-b@example.invalid" });
     const results = await Promise.all([signup(a.email, a.token), signup(b.email, b.token)]);
     expect(results.map(r => r.status).sort()).toEqual([202, 400]);
-    expect(await h.db.select().from(user)).toHaveLength(50);
+    expect(await h.db.select().from(user)).toHaveLength(51);
+    await h.db.update(serviceSettings).set({ accountLimit: null });
+    expect((await signup("unlimited@example.invalid")).status).toBe(202);
+    expect(await h.db.select().from(user)).toHaveLength(52);
   });
   it("persists only hashed bounded rate keys and rejects excess attempts", async () => {
     const { rateLimit } = await import("@/server/rate-limit");

@@ -77,7 +77,7 @@ Signup proceeds as follows:
    The server assigns the account role and verification state.
 2. Start a PostgreSQL transaction. Insert the singleton service settings if
    absent and lock `id=true FOR UPDATE`. Closed mode denies registration. Count
-   existing accounts under the lock and enforce `min(accountLimit, 50)`.
+   existing accounts under the lock and enforce `accountLimit` when set (nullable, up to 100,000).
 3. If an invitation is supplied, or invitation mode requires one, lock the
    invitation matched by token hash and normalized email. It must be unexpired,
    nonrevoked and unredeemed.

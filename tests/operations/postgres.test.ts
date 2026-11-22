@@ -219,8 +219,10 @@ describe.skipIf(!testUrl)("operations on separate disposable PostgreSQL", () => 
     await mutateAdmin(request(admin.cookie, {}), { action: "settings", registrationMode: "closed", uploadsPaused: true, accountLimit: 20, totalMediaLimitBytes: 1024 ** 3 });
     await expect(uploadMedia(a.id, "image", new ReadableStream())).rejects.toMatchObject({ code: "MEDIA_UPLOADS_PAUSED" });
     expect(await readAdmin(request(admin.cookie), "settings")).toMatchObject({ settings: { registrationMode: "closed", uploadsPaused: true } });
-    await mutateAdmin(request(admin.cookie, {}), { action: "settings", registrationMode: "public", uploadsPaused: false, accountLimit: 50, totalMediaLimitBytes: 1024 ** 3 });
-    expect(await readAdmin(request(admin.cookie), "settings")).toMatchObject({ settings: { registrationMode: "public", uploadsPaused: false } });
+    await mutateAdmin(request(admin.cookie, {}), { action: "settings", registrationMode: "public", uploadsPaused: false, accountLimit: 100000, totalMediaLimitBytes: 1024 ** 3 });
+    expect(await readAdmin(request(admin.cookie), "settings")).toMatchObject({ settings: { registrationMode: "public", uploadsPaused: false, accountLimit: 100000 } });
+    await mutateAdmin(request(admin.cookie, {}), { action: "settings", registrationMode: "public", uploadsPaused: false, accountLimit: null, totalMediaLimitBytes: 1024 ** 3 });
+    expect(await readAdmin(request(admin.cookie), "settings")).toMatchObject({ settings: { registrationMode: "public", uploadsPaused: false, accountLimit: null } });
   });
   it("serializes deletion against publication without exposing the deleted account", async () => {
     const a = await owner();

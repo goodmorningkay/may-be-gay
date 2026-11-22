@@ -21,9 +21,11 @@ describe("operations input and privacy boundaries", () => {
     const url = new URL(reportUrl("alice", { linkId: id }, "may-be.localhost")); expect(url.hostname).toBe("may-be.localhost"); expect(url.searchParams.get("linkId")).toBe(id);
   });
   it("accepts public registration settings while rejecting role escalation and invalid settings", () => {
-    const settings = { action: "settings", registrationMode: "public", uploadsPaused: false, accountLimit: 50, totalMediaLimitBytes: 0 };
+    const settings = { action: "settings", registrationMode: "public", uploadsPaused: false, accountLimit: 100000, totalMediaLimitBytes: 0 };
     expect(adminActionSchema.safeParse(settings).success).toBe(true);
-    for (const body of [{ action: "promote", userId: "other" }, { action: "invite", email: "a@example.invalid", role: "admin" }, { ...settings, registrationMode: "unknown" }, { action: "quota", userId: "other", bytes: -1 }]) expect(adminActionSchema.safeParse(body).success).toBe(false);
+    expect(adminActionSchema.safeParse({ ...settings, accountLimit: null })).toMatchObject({ success: true, data: { accountLimit: null } });
+    expect(adminActionSchema.safeParse({ action: "settings", registrationMode: "public", uploadsPaused: false, totalMediaLimitBytes: 0 })).toMatchObject({ success: true, data: { accountLimit: null } });
+    for (const body of [{ action: "promote", userId: "other" }, { action: "invite", email: "a@example.invalid", role: "admin" }, { ...settings, registrationMode: "unknown" }, { ...settings, accountLimit: 0 }, { ...settings, accountLimit: 100001 }, { action: "quota", userId: "other", bytes: -1 }]) expect(adminActionSchema.safeParse(body).success).toBe(false);
     expect(deleteAccountSchema.safeParse({ confirmation: "DELETE MY ACCOUNT", ownerId: "other" }).success).toBe(false);
   });
   it("metrics permit only bounded event and stable link ID, never visitor metadata", () => {
