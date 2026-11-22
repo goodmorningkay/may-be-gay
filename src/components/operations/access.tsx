@@ -14,7 +14,7 @@ export function AccessHelp({ error }: { error: unknown }) {
     <main><OnboardingScreen title="Account access">
       <p>{error.message}</p>
       <nav className={chrome.actions} aria-label="Account">
-        <Link href="/sign-in" className={chrome.button}>Sign in</Link>
+        <Link href="/sign-in" className={chrome.button} prefetch={false}>Sign in</Link>
         <Link href="/account/security">Confirm password and two-factor access</Link>
         <Link href="/account">Account</Link>
       </nav>
