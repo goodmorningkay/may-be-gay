@@ -89,7 +89,7 @@ All objects remain strict; there is no arbitrary CSS/JS/HTML or remote-URL field
 | `avatarAssetId`, `backgroundAssetId` | UUID, null or absent. Owned ready images, validated again server-side. |
 | `music` | `{ assetId: UUID, attribution: string }`, null or absent. Nonblank attribution, max 300; ready owned MP3 required. |
 | `links[].icon` | Optional `website`, `github`, `instagram`, `mastodon`, `bluesky`, `youtube`, `twitch`, `linkedin`, `spotify`. Fixed decorative inline SVG beside the visible link label/host. |
-| `theme.colors` | Optional strict object with optional `background`, `surface`, `ink`, `accent`, each `#rrggbb`. Custom ink also supplies muted text color. |
+| `theme.colors` | Optional strict object with optional `background`, `surface`, `ink`, `accent`, each `#rrggbb`. Custom ink also supplies muted text color, and custom accent also supplies border color. |
 | `theme.button` | `preset`, `square`, `rounded`, `pill`; absent retains preset corners. |
 | `theme.background` | `{ kind: "solid", color }` or `{ kind: "gradient", from, to, direction: "down" \| "right" \| "diagonal" }`. Colors are six-digit hex. |
 | `theme.overlay` | `none`, `light`, `dark`; only applied over an owned background image. |

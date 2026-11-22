@@ -57,10 +57,12 @@ describe("owned media renderer", () => {
   it("only emits validated CSS values, and legacy snapshots have no inline styles", () => {
     expect(render(createExampleProfile(), {})).not.toContain("style=");
     const document = fixture();
-    document.theme = { ...document.theme, colors: { ink: "#112233" }, button: "pill", spacing: "compact", overlay: "dark",
+    document.theme = { ...document.theme, colors: { ink: "#112233", accent: "#333333" }, button: "pill", spacing: "compact", overlay: "dark",
       background: { kind: "gradient", from: "#ffffff", to: "#eeeeee", direction: "diagonal" } };
     const html = render(document);
     expect(html).toContain("--ink:#112233");
+    expect(html).toContain("--accent:#333333");
+    expect(html).toContain("--border:#333333");
     expect(html).toContain("linear-gradient(135deg, #ffffff, #eeeeee)");
     expect(html).toContain('data-button="pill"');
     expect(html).toContain('data-spacing="compact"');
