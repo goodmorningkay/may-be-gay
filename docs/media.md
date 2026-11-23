@@ -43,13 +43,19 @@ the session against the asset independently and does **not** require this header
 
 ## Limits and processing
 
-- Images: JPEG/PNG/WebP only, 5 MiB received, at most 16,000,000 decoded pixels.
-  Container inspection rejects APNG and animated WebP; sharp rejects multiple
-  pages and decoder warnings. SVG, HTML, GIF, PDF and other formats are rejected.
+- Images: GIF and static JPEG/PNG/WebP, up to 5 MiB received and 16,000,000
+  decoded pixels including all GIF frames. GIF uploads may have up to 120
+  frames. Container inspection rejects APNG and animated WebP uploads.
   Strict decoding produces a metadata-free WebP original (maximum 4096 pixels
-  per side, 5 MiB), and a display derivative (maximum 1600 pixels per side,
-  1 MiB). Public rendering uses the display derivative. Original upload bytes
-  are never published and are removed after validation commits.
+  per side, 5 MiB) and a display derivative (1 MiB, maximum 1600 pixels per
+  side for still images). Animated GIFs use lossless WebP to retain subtle frame
+  changes and compress flat colors. The parser resizes GIF frames separately
+  and compares the full-size WebP with a candidate up to 1280 pixels per side.
+  For display, it selects the smallest file within 1 MiB that retains the most
+  frames and tries a smaller size if needed. Both variants share one private
+  object when the same encode satisfies both. Public rendering uses the display
+  derivative.
+  Original upload bytes are removed after validation commits.
 - Audio: MP3, PCM WAV (integer or float), and native FLAC, up to 10 MiB received
   and 180 seconds. MP3 uploads retain their audio frames after ID3 tag stripping.
   A complete frame walk rejects free bitrate, reserved fields, mixed sample
@@ -342,7 +348,7 @@ and real Cloudflare purge acceptance still require launch configuration.
 ## Verification
 
 `npx vitest run tests/media` covers stream byte/time bounds, generated strict
-image variants, metadata removal, APNG/WebP animation rejection, active/MIME
+image variants, metadata removal, GIF animation and bounds, APNG/WebP upload rejection, active/MIME
 spoofing, truncated/overlong audio, WAV and FLAC conversion, MP3 decode, parser wall/output
 bounds, API authorization/CSRF, storage namespace/immutability, S3 command and
 failure contracts, Cloudflare purge and response headers/ranges. Fixtures are

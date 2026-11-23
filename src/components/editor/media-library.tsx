@@ -136,7 +136,7 @@ export function MediaLibrary({ profileId, document: d, errors, disabled, onChang
       <div className={styles.inlineActions}>
         <label className={`${styles.button} ${styles.upload}`}>
           Upload image
-          <input type="file" accept="image/jpeg,image/png,image/webp" title="JPEG, PNG or WebP, up to 5 MiB and 16 megapixels"
+          <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" title="JPEG, PNG, WebP or GIF" aria-describedby="image-upload-limits"
             disabled={unavailable} onChange={e => { const file = e.target.files?.[0]; e.target.value = ""; void upload(file, "image"); }} />
         </label>
         <label className={`${styles.button} ${styles.upload}`}>
@@ -145,6 +145,7 @@ export function MediaLibrary({ profileId, document: d, errors, disabled, onChang
             disabled={unavailable} onChange={e => { const file = e.target.files?.[0]; e.target.value = ""; void upload(file, "audio"); }} />
         </label>
       </div>
+      <p id="image-upload-limits" className={styles.hint}>Images can be up to 5 MiB and 16 megapixels. GIFs can have up to 120 frames, with the pixel limit shared across all frames.</p>
       <p role="status" className={styles.hint}>{notice}</p>
       {list ? <div className={styles.storage}>
         <div className={styles.sectionHeading}><strong>Media storage</strong><span className={styles.rowMeta}>{bytes(list.usage.chargedBytes)} / {bytes(list.quota.limitBytes)}</span></div>

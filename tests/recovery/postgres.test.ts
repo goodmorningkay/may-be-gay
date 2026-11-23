@@ -1,4 +1,5 @@
 import { setTimeout as pause } from "node:timers/promises";
+import { execFileSync } from "node:child_process";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { randomBytes, randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, readdir, writeFile, unlink } from "node:fs/promises";
@@ -6,6 +7,7 @@ import path from "node:path";
 import sharp from "sharp";
 import { eq } from "drizzle-orm";
 import { fixture } from "./fixture";
+import { gifFixture } from "../media/gif-fixture";
 import * as nativeTools from "../../src/server/recovery/native";
 import * as journalSource from "../../src/server/recovery/journal";
 import * as recoveryEvents from "../../src/server/operations/recovery";
@@ -20,6 +22,7 @@ import { mediaStorage } from "../../src/server/db/schema-media";
 import { defaultProfileDocument } from "../../src/domain/profile";
 import { getMediaStorage, objectKeys, publicObjectKey, LocalMediaStorage } from "../../src/server/media/storage";
 import { lockMediaOwner, publishOwnedMedia, deleteOwnedMedia, uploadMedia } from "../../src/server/media/service";
+import { processMediaJob } from "../../src/server/media/jobs";
 import { operationsLock } from "../../src/server/operations/core";
 import { journal, markAccountDeleted, setSuspension, detachAndRemoveMedia } from "../../src/server/operations/recovery";
 import { workerConnection } from "../../src/server/worker/queue";
@@ -153,6 +156,33 @@ describe.skipIf(!source || !target)("full PostgreSQL 17 backup/restore", () => {
     expect(await inventory(store)).toEqual([{ entries: [] }]);
     await local.delete("private", o.original); await local.put("private", o.original, o.body, "image/webp");
   }, 30000);
+  it("backs up a shared animated WebP and a converted MP3 in the same snapshot", async () => {
+    await closeDatabase(); vi.stubEnv("DATABASE_URL", source!); vi.stubEnv("MEDIA_LOCAL_ROOT", path.join(root, "source-media"));
+    const o = await owner();
+    const wav = path.join(root, "snapshot-fixture.wav");
+    execFileSync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "sine=frequency=440:duration=0.5", "-c:a", "pcm_s16le", wav]);
+    const input = [["image", await gifFixture(64, 48)], ["audio", await readFile(wav)]] as const;
+    const expectedObjects = [];
+    for (const [kind, bytes] of input) {
+      const asset = await uploadMedia(o.id, kind, new ReadableStream({ start(c) { c.enqueue(bytes); c.close(); } }));
+      const [pending] = await h.db.select().from(mediaStorage).where(eq(mediaStorage.assetId, asset.id));
+      await processMediaJob({ version: 1, action: "process", assetId: asset.id, token: pending.token });
+      const [ready] = await h.db.select().from(mediaStorage).where(eq(mediaStorage.assetId, asset.id));
+      expect(ready.original?.contentType).toBe(kind === "image" ? "image/webp" : "audio/mpeg");
+      expect(ready.display).toEqual(ready.original);
+      expectedObjects.push(ready.original!);
+    }
+    const archives = path.join(root, "mixed-media-archives");
+    const snapshot = await createArchive("snapshot", { url: backupUrl, stores: [new LocalBackupStore(archives)], key });
+    const manifest = path.join(root, "mixed-media.json");
+    await decryptFile(path.join(archives, snapshot.id, "manifest.enc"), manifest, key, 8 * 1024 ** 2);
+    const { files } = JSON.parse(await readFile(manifest, "utf8"));
+    for (const { key: objectKey, bytes, contentType } of expectedObjects) {
+      expect(files.filter((file: { object?: { key: string } }) => file.object?.key === objectKey)).toEqual([
+        expect.objectContaining({ object: { area: "private", key: objectKey, bytes, contentType } }),
+      ]);
+    }
+  }, 30_000);
   it("backup holds the shared media mutation lock until ready bytes are copied", async () => {
     await closeDatabase(); vi.stubEnv("DATABASE_URL", source!); vi.stubEnv("MEDIA_LOCAL_ROOT", path.join(root, "source-media"));
     const o = await owner(), store = new LocalBackupStore(path.join(root, "race-archives"));
