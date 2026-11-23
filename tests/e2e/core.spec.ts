@@ -18,6 +18,8 @@ test("homepage keeps the requested address through public signup and verificatio
   const email = `${username}@example.invalid`;
 
   await visitHomepage(page);
+  await expect(page.locator("html")).toHaveCSS("background-color", "rgb(18, 18, 18)");
+  await expect(page.locator('meta[name="viewport"]')).not.toHaveAttribute("content", /viewport-fit=cover/);
   await expect(page.getByRole("link", { name: "Log in" })).toHaveAttribute("href", `${app}/sign-in`);
   await page.getByRole("textbox", { name: "Username" }).fill(username);
   await page.getByRole("button", { name: "Claim address" }).click();
@@ -73,6 +75,7 @@ test("homepage keeps the requested address through public signup and verificatio
   await expect(page.locator("main")).toHaveAttribute("data-layout", "split");
   await page.evaluate(async () => { await document.fonts.ready; });
   await page.goto(`${apex}/privacy`);
+  await expect(page.locator("html")).toHaveCSS("background-color", "rgb(18, 18, 18)");
   await expect(page.getByRole("navigation", { name: "Policies" }).getByRole("link", { name: "Privacy" })).toHaveAttribute("aria-current", "page");
   await expect(page.getByRole("heading", { name: "What is public" })).toBeVisible();
   await expect(page.getByText("Development draft")).toHaveCount(0);
@@ -80,6 +83,7 @@ test("homepage keeps the requested address through public signup and verificatio
   expectedErrors.push(/^Console: Failed to load resource: the server responded with a status of 404.*\[https:\/\/unknown\.may-be\.localhost\/\]$/);
   const missing = await page.goto("https://unknown.may-be.localhost/");
   expect(missing?.status()).toBe(404);
+  await expect(page.locator("html")).toHaveCSS("background-color", "rgb(18, 18, 18)");
   await expect(page.getByRole("link", { name: "Go to may-be.gay", exact: true })).toHaveAttribute("href", apex);
 });
 
@@ -151,6 +155,7 @@ test("owners edit privately, upload real media, publish and remain isolated", as
     await page.getByLabel("Layout", { exact: true }).selectOption("split");
     await page.getByLabel("Font", { exact: true }).selectOption("mono");
     await page.getByLabel("Background treatment", { exact: true }).selectOption("gradient");
+    await page.getByLabel("Gradient start", { exact: true }).fill("#4b2030");
     await page.getByLabel("Gradient direction", { exact: true }).selectOption("diagonal");
     await page.getByLabel("Link button shape", { exact: true }).selectOption("pill");
     await page.getByLabel("Spacing", { exact: true }).selectOption("airy");
@@ -204,17 +209,43 @@ test("owners edit privately, upload real media, publish and remain isolated", as
     await editorSection(page, "About you");
     const viewsBefore = (await fixture("state", owner.email)).views;
     const preview = await context.newPage(); await preview.goto(`${app}/preview`);
+    await expect(preview.locator("html")).toHaveCSS("background-color", "rgb(18, 18, 18)");
     await expect(preview.getByRole("heading", { name: "Public chosen name", exact: true })).toBeVisible(); await preview.close();
     expect((await fixture("state", owner.email)).views).toBe(viewsBefore);
     // Publish directly after input: proves the action flushes valid pending edits.
     await page.getByLabel("Bio", { exact: true }).fill("Flushed on explicit publication"); await publish(page);
     const visitor = await context.newPage(); const response = await visitor.goto(`https://${prefix}-a.may-be.localhost`);
     expect(response?.status()).toBe(200);
+    await expect(visitor.locator("html")).toHaveCSS("background-color", "rgb(75, 32, 48)");
     await expect(visitor.getByText("Flushed on explicit publication", { exact: true })).toBeVisible();
     await expect(visitor.getByRole("link", { name: /^Hidden destination/ })).toHaveCount(0);
     await expect(visitor.getByRole("link", { name: /^Visible edited link/ })).toBeVisible();
     const html = await visitor.content(); expect(html).not.toContain(owner.email); expect(html).not.toContain("Private auth"); expect(html).not.toContain("private-draft=1"); expect(html).toContain("public-contact@example.invalid");
     await expect.poll(() => visitor.locator("img").first().evaluate((el: HTMLImageElement) => el.naturalWidth)).toBeGreaterThan(0);
+    if (info.project.name === "mobile") {
+      const originalViewport = visitor.viewportSize()!;
+      const viewport = { width: 430, height: 932 };
+      await visitor.setViewportSize(viewport);
+      const cdp = await context.newCDPSession(visitor);
+      try {
+        await cdp.send("Emulation.setSmallViewportHeightDifferenceOverride", { difference: 80 });
+        await cdp.send("Emulation.setSafeAreaInsetsOverride", { insets: { top: 59, right: 24, bottom: 34, left: 24 } });
+        await expect(visitor.locator('meta[name="viewport"]')).toHaveAttribute("content", /viewport-fit=cover/);
+        const profile = visitor.locator("main");
+        await expect(profile).toHaveCSS("padding-top", "91px");
+        await expect(profile).toHaveCSS("padding-bottom", "76px");
+        await expect(profile).toHaveCSS("padding-left", "44px");
+        await expect(profile).toHaveCSS("padding-right", "44px");
+        await expect(profile).toHaveCSS("min-block-size", `${viewport.height}px`);
+        const background = profile.locator('img[aria-hidden="true"]');
+        await expect.poll(() => background.boundingBox()).toEqual({ x: 0, y: 0, ...viewport });
+      } finally {
+        await cdp.send("Emulation.setSmallViewportHeightDifferenceOverride", { difference: 0 });
+        await cdp.send("Emulation.setSafeAreaInsetsOverride", { insets: {} });
+        await cdp.detach();
+        await visitor.setViewportSize(originalViewport);
+      }
+    }
     const audio = visitor.locator("audio");
     await expect(audio).toHaveAttribute("preload", "none"); await expect(audio).toHaveAttribute("controls", "");
     await expect(visitor.getByLabel("Volume", { exact: true })).toHaveValue("0.2");

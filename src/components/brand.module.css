@@ -33,7 +33,7 @@
 }
 
 .dark {
-  --surface: #121212;
+  --surface: var(--site-background);
   --control: #252525;
   --border-subtle: #333;
   --border-control: #4c4c4c;

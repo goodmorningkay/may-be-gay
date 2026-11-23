@@ -20,6 +20,7 @@ type ProfileViewProps = {
   siteDomain: string;
   media?: PublicMediaMap;
   supportHref?: string;
+  fullViewport?: boolean;
 };
 
 function platformOrigin(siteDomain: string): string {
@@ -73,6 +74,7 @@ export function ProfileView({
   siteDomain,
   media = {},
   supportHref,
+  fullViewport = false,
 }: ProfileViewProps): React.JSX.Element {
   const profile = getPublicDocument(document);
   const origin = platformOrigin(siteDomain);
@@ -94,7 +96,7 @@ export function ProfileView({
 
   return (
     <main
-      className={styles.profile}
+      className={fullViewport ? `${styles.profile} ${styles.fullViewport}` : styles.profile}
       data-preset={profile.theme.preset}
       data-layout={profile.theme.layout}
       data-font={profile.theme.font}
