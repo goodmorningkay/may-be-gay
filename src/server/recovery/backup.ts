@@ -3,7 +3,7 @@ import { setTimeout as pause } from "node:timers/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { chmod, mkdtemp, rm } from "node:fs/promises";
 import path from "node:path";
-import { validateMedia } from "../media/validation";
+import { validateMedia, validateStoredWebp } from "../media/validation";
 import { getMediaStorage } from "../media/storage";
 import { workerConnection } from "../worker/queue";
 import { MEDIA_BACKUP_LOCK } from "../db/maintenance-lock";
@@ -117,7 +117,8 @@ export async function createArchive(kind: "snapshot" | "journal", options: { url
               if (data.length !== object.bytes) fail("BACKUP_MEDIA_MISSING");
               // Validate retained bytes too: a truncated/corrupt source must not
               // become a newly authenticated, apparently healthy backup.
-              await validateMedia(data, object.contentType === "audio/mpeg" ? "audio" : "image");
+              if (object.contentType === "image/webp") await validateStoredWebp(data);
+              else await validateMedia(data, "mp3");
               const file = path.join(work, "media.tmp"); await writePrivate(file, data);
               await saveFile(m, file, work, key, object.bytes, object); await rm(file);
             }

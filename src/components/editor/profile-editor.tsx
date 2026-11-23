@@ -7,6 +7,7 @@ import type { PublicMediaMap } from "@/domain/media";
 import { editorTransport } from "./api";
 import { AppearanceFields } from "./appearance-fields";
 import { AboutFields, DiscoveryFields, LinkFields, type LinkEdit } from "./content-fields";
+import { EmbedFields } from "./embed-fields";
 import { EditorIcon } from "./editor-icon";
 import { MediaLibrary } from "./media-library";
 import { LivePreview } from "./live-preview";
@@ -15,6 +16,7 @@ import styles from "./editor.module.css";
 const sections = {
   identity: "About you",
   links: "Links",
+  embeds: "Embeds",
   appearance: "Appearance",
   media: "Media",
   discovery: "Discovery",
@@ -26,6 +28,7 @@ const sectionIds = Object.keys(sections) as Section[];
 function sectionForField(field: string): Section {
   const root = field.split(".")[0];
   if (root === "links") return "links";
+  if (root === "embeds") return "embeds";
   if (root === "theme") return "appearance";
   if (root === "avatarAssetId" || root === "backgroundAssetId" || root === "music" || root === "clickToEnter") return "media";
   if (root === "pageTitle" || root === "pageDescription" || root === "allowIndexing") return "discovery";
@@ -178,6 +181,7 @@ export function ProfileEditor({ initial, siteDomain }: { initial: EditorState; s
                 <legend className={styles.srOnly}>Private profile draft</legend>
                 <div id="panel-identity" hidden={section !== "identity"} tabIndex={-1}><AboutFields {...fieldProps} /></div>
                 <div id="panel-links" hidden={section !== "links"} tabIndex={-1}><LinkFields {...fieldProps} edit={linkEdit} onEdit={setLinkEdit} /></div>
+                <div id="panel-embeds" hidden={section !== "embeds"} tabIndex={-1}><EmbedFields {...fieldProps} /></div>
                 <div id="panel-appearance" hidden={section !== "appearance"} tabIndex={-1}><AppearanceFields {...fieldProps} preview={state.preview} /></div>
                 <div id="panel-media" hidden={section !== "media"} tabIndex={-1}><MediaLibrary {...fieldProps} profileId={editorProfileId} disabled={state.busyAction} onMedia={setMedia} /></div>
                 <div id="panel-discovery" hidden={section !== "discovery"} tabIndex={-1}><DiscoveryFields {...fieldProps} /></div>
@@ -233,7 +237,7 @@ export function ProfileEditor({ initial, siteDomain }: { initial: EditorState; s
     <dialog ref={dialog} className={styles.dialog} onCancel={() => setConfirm(null)} onClose={() => setConfirm(null)} aria-labelledby="confirm-title">
       <h2 id="confirm-title">{confirm === "publish" ? "Publish this draft?" : confirm === "unpublish" ? "Take your page offline?" : confirm === "local" ? "Replace the compared server draft?" : confirm === "server" ? "Discard your local input?" : `Restore publication ${restoreRevision?.revisionNumber ?? ""}?`}</h2>
       {restoreRevision ? <p>Originally published {new Date(restoreRevision.createdAt).toLocaleString("en-GB", { timeZone: "UTC" })} UTC.</p> : null}
-      <p>{confirm === "publish" ? "The editor will save all valid pending edits first, then publish that exact saved version. Your selected text, contact email and media will become public." : confirm === "unpublish" ? "Pending edits will save first. Your public page will be removed; draft and history remain available. Previously downloaded copies cannot be recalled." : confirm === "local" ? "Your complete local input will replace the compared server document on the next save. Server-only changes will be lost from the draft. Download both drafts or copy needed fields before continuing. A further server edit will cause another conflict." : confirm === "server" ? "Your unsaved local input will be discarded and replaced with the compared server draft. Download your local draft first if you need to keep it." : "Valid pending edits will save first. The chosen publication will replace the draft and become a new public publication. This can prune the oldest of five retained publications. Download your current draft if you want a separate copy."}</p>
+      <p>{confirm === "publish" ? "The editor will save all valid pending edits first, then publish that exact saved version. Your selected text, contact email, media and embeds will become public." : confirm === "unpublish" ? "Pending edits will save first. Your public page will be removed; draft and history remain available. Previously downloaded copies cannot be recalled." : confirm === "local" ? "Your complete local input will replace the compared server document on the next save. Server-only changes will be lost from the draft. Download both drafts or copy needed fields before continuing. A further server edit will cause another conflict." : confirm === "server" ? "Your unsaved local input will be discarded and replaced with the compared server draft. Download your local draft first if you need to keep it." : "Valid pending edits will save first. The chosen publication will replace the draft and become a new public publication. This can prune the oldest of five retained publications. Download your current draft if you want a separate copy."}</p>
       <div className={styles.inlineActions}><button type="button" onClick={() => setConfirm(null)}>Cancel</button><button type="button" onClick={downloadDraft}>Download local draft</button><button type="button" className={styles.primary} onClick={() => void confirmAction()}>Confirm</button></div>
     </dialog>
   </div>;

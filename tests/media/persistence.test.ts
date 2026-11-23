@@ -17,6 +17,7 @@ import { defaultProfileDocument } from "@/domain/profile";
 import { assertOwnedReadyMedia, deleteOwnedMedia, getPrivateMedia, getPublicMedia, listOwnedMedia, publishOwnedMedia, readLocalPublicContent, readPrivateContent, uploadMedia } from "@/server/media/service";
 import { enqueueMediaSweep, processCachePurgeJob, processMediaDeletionJob, processMediaJob } from "@/server/media/jobs";
 import { getMediaStorage, LocalMediaStorage, objectKeys } from "@/server/media/storage";
+import { gifFixture } from "./gif-fixture";
 const testUrl = process.env.TEST_MEDIA_DATABASE_URL;
 // A separate disposable database allows parallel destructive suite bootstraps.
 describe.skipIf(!testUrl)("media PostgreSQL ownership, quota and distributed transactions", () => {
@@ -82,6 +83,32 @@ describe.skipIf(!testUrl)("media PostgreSQL ownership, quota and distributed tra
     await expect(deleteOwnedMedia(b.id,row.assetId)).rejects.toMatchObject({status:404});
     await expect(getDatabase().transaction(tx=>assertOwnedReadyMedia(tx,b.id,[row.assetId]))).rejects.toMatchObject({code:"MEDIA_NOT_READY"});
     expect((await listOwnedMedia(a.id)).usage.chargedBytes).toBe(row.privateBytes+row.publicBudgetBytes);
+  });
+  it("stores and charges one private object for a shared animated derivative", async () => {
+    const a = await owner(), gif = await gifFixture(64, 48);
+    const asset = await uploadMedia(a.id, "image", new ReadableStream({ start(controller) { controller.enqueue(gif); controller.close(); } }));
+    const readRow = async () => (await harness.db.select().from(mediaStorage).where(eq(mediaStorage.assetId, asset.id)))[0];
+    const { token } = await readRow();
+    const locator = { version: 1, assetId: asset.id, token };
+    await processMediaJob({ ...locator, action: "process" });
+    const ready = await readRow();
+    const keys = objectKeys(asset.id, token), storage = getMediaStorage(), bytes = ready.original!.bytes;
+    expect(ready.original?.key).toBe(keys.original);
+    expect(ready.display).toEqual(ready.original);
+    expect(ready.privateBytes).toBe(gif.length + bytes);
+    expect(ready.chargedBytes).toBe(gif.length + 2 * bytes);
+    expect(await storage.exists("private", keys.display)).toBe(false);
+    await processMediaJob({ ...locator, action: "trim" });
+    expect(await readRow()).toMatchObject({ privateBytes: bytes, chargedBytes: 2 * bytes });
+    await publish(a.id, a.profileId, asset.id);
+    await processMediaJob({ ...locator, action: "reconcileAsset" });
+    expect(await readRow()).toMatchObject({ privateBytes: bytes, chargedBytes: 2 * bytes });
+    expect(await sharp(await storage.get("public", ready.publicKey, bytes)).metadata()).toMatchObject({ pages: 2 });
+    await harness.db.delete(user).where(eq(user.id, a.id));
+    await processMediaJob({ ...locator, action: "reconcileAsset" });
+    await processMediaDeletionJob(locator);
+    expect(await storage.exists("private", keys.original)).toBe(false);
+    expect(await storage.exists("public", ready.publicKey)).toBe(false);
   });
   it("rejects removal of retained drafts and history references", async () => {
     const a=await owner(), row=await ready(a.id);

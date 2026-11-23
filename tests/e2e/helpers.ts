@@ -73,6 +73,7 @@ export async function account(page: Page, username: string, admin = false) {
   await page.goto(mail[0].url);
   await expect(page.getByRole("status")).toContainText("Email verified");
   await signIn(page, email);
+  await page.evaluate(async () => { await document.fonts.ready; });
   await page.goto(`${app}/editor`);
   await page.getByLabel("Username", { exact: true }).fill(username);
   await page.getByRole("button", { name: /Claim/ }).click();

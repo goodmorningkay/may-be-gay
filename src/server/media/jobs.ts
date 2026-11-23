@@ -3,7 +3,7 @@ import { and, eq, gt, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDatabase } from "@/server/db";
 import { jobs, media } from "@/server/db/schema";
-import { mediaStorage } from "@/server/db/schema-media";
+import { mediaStorage, type MediaObject } from "@/server/db/schema-media";
 import { inputLimit, RESERVATION_MS } from "./limits";
 import { invalidMedia, MediaError } from "./errors";
 import { cleanAssetTemporaries, getMediaStorage, objectKeys, publicObjectKey } from "./storage";
@@ -19,6 +19,10 @@ export const mediaJobPayload = z.discriminatedUnion("action", [
 ]);
 export const mediaDeletionJobPayload = z.object(locator).strict();
 export const cachePurgeJobPayload = z.object({ ...locator, key: z.string().min(1).max(240) }).strict();
+
+function privateDerivativeBytes(original: MediaObject, display: MediaObject) {
+  return original.bytes + (display.key === original.key ? 0 : display.bytes);
+}
 
 async function enqueueAssets(rows: { id: string; token: string }[], eventId: string, periodic = false) {
   if (!rows.length) return;
@@ -63,12 +67,14 @@ async function processAsset(assetId: string, token: string) {
     }
     const original = { area: "private" as const, key: row.kind === "image" ? keys.original : keys.audio, bytes: parsed.original.length,
       contentType: parsed.contentType, ...(parsed.width ? { width: parsed.width, height: parsed.height } : {}), ...(parsed.durationMs ? { durationMs: parsed.durationMs } : {}) };
-    const display = row.kind === "image" ? { area: "private" as const, key: keys.display, bytes: parsed.display.length, contentType: parsed.contentType, width: parsed.displayWidth, height: parsed.displayHeight } : original;
-    const privateBytes = row.receivedBytes + original.bytes + (row.kind === "image" ? display.bytes : 0);
+    const display = row.kind === "image" && !parsed.sharedVariants
+      ? { area: "private" as const, key: keys.display, bytes: parsed.display.length, contentType: parsed.contentType, width: parsed.displayWidth, height: parsed.displayHeight }
+      : original;
+    const privateBytes = row.receivedBytes + privateDerivativeBytes(original, display);
     const charge = privateBytes + display.bytes;
     if (charge > row.chargedBytes) throw invalidMedia();
     await storage.put("private", original.key, parsed.original, original.contentType);
-    if (row.kind === "image") await storage.put("private", display.key, parsed.display, display.contentType);
+    if (display.key !== original.key) await storage.put("private", display.key, parsed.display, display.contentType);
     await tx.update(mediaStorage).set({ original, display, state: "ready", chargedBytes: charge, privateBytes, publicBudgetBytes: display.bytes, updatedAt: new Date() }).where(eq(mediaStorage.assetId, assetId));
     await tx.update(media).set({ state: "ready", objectKey: original.key, actualBytes: original.bytes, contentType: original.contentType, width: parsed.width ?? null, height: parsed.height ?? null, durationMs: parsed.durationMs ?? null }).where(eq(media.id, assetId));
     await tx.insert(jobs).values({ kind: "media", idempotencyKey: `media:trim:${assetId}`, maxAttempts: 20, payload: { version: 1, action: "trim", assetId, token } }).onConflictDoNothing();
@@ -95,7 +101,7 @@ async function reconcileAsset(assetId: string, token: string, expireOnly = false
     await cleanAssetTemporaries(storage, row);
     await storage.delete("private", objectKeys(assetId, token).quarantine);
     if (row.original && row.display) {
-      const bytes = row.original.bytes + (row.kind === "image" ? row.display.bytes : 0);
+      const bytes = privateDerivativeBytes(row.original, row.display);
       await tx.update(mediaStorage).set({ privateBytes: bytes, chargedBytes: bytes + row.publicBudgetBytes }).where(eq(mediaStorage.assetId, assetId));
     }
     if (row.revokingKey) { await enqueuePublicPurge(tx, row, row.revokingKey); return; }
@@ -119,7 +125,7 @@ async function trimQuarantine(assetId: string, token: string) {
     const storage = getMediaStorage();
     await cleanAssetTemporaries(storage, row);
     await storage.delete("private", objectKeys(assetId, token).quarantine);
-    const bytes = row.original.bytes + (row.kind === "image" ? row.display.bytes : 0);
+    const bytes = privateDerivativeBytes(row.original, row.display);
     await tx.update(mediaStorage).set({ privateBytes: bytes, chargedBytes: bytes + row.publicBudgetBytes, updatedAt: new Date() }).where(eq(mediaStorage.assetId, assetId));
   });
 }
