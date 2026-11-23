@@ -9,7 +9,8 @@ export function ProfileEmbed({ title, source }: {
   source: NonNullable<ReturnType<typeof resolveProfileEmbed>>;
 }) {
   const [loaded, setLoaded] = useState(false);
-  const action = loaded ? "Hide embed" : `Load ${source.provider} embed`;
+  const loadAction = source.provider === "Last.fm" ? "Load Last.fm embed via PetraPixel" : "Load Spotify embed";
+  const action = loaded ? "Hide embed" : loadAction;
 
   return <li className={styles.embed}>
     <h2>{title}</h2>

@@ -1,8 +1,8 @@
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { account, app, editorSection, expect, publish, saved, state, test } from "./helpers";
 
-const lastFm = { title: "Recently played", url: "https://www.last.fm/user/Petra1999", frame: "https://petracoding.github.io/neocities/widgets/lastfm?username=Petra1999", provider: "Last.fm" };
-const spotify = { title: "Favourite track", url: "https://open.spotify.com/track/7GhIk7Il098yCjg4BQjzvb?si=share-id", frame: "https://open.spotify.com/embed/track/7GhIk7Il098yCjg4BQjzvb", provider: "Spotify" };
+const lastFm = { title: "Recently played", url: "https://www.last.fm/es/user/Petra1999", frame: "https://petracoding.github.io/neocities/widgets/lastfm?username=Petra1999", provider: "Last.fm", loadName: "Load Last.fm embed via PetraPixel" };
+const spotify = { title: "Favourite track", url: "https://open.spotify.com/intl-de/track/7GhIk7Il098yCjg4BQjzvb?si=share-id", frame: "https://open.spotify.com/embed/track/7GhIk7Il098yCjg4BQjzvb", provider: "Spotify", loadName: "Load Spotify embed" };
 
 test("saves and publishes ordered sandboxed embeds in Stacked and Split layouts", async ({ page, context, expectedErrors }) => {
   expectedErrors.push(/^Console: Failed to load resource: the server responded with a status of 404.*\[https:\/\/app\.may-be\.localhost\/api\/profile\]$/);
@@ -15,6 +15,16 @@ test("saves and publishes ordered sandboxed embeds in Stacked and Split layouts"
     });
   }
   const owner = await account(page, `review-embeds-${randomBytes(3).toString("hex")}`);
+  const initial = await state(context);
+  const links = Array.from({ length: 5 }, (_, index) => ({
+    id: randomUUID(), label: `Link ${index + 1}`, url: `https://example.com/page-${index + 1}`, visible: true,
+  }));
+  const seeded = await context.request.put(`${app}/api/profile`, {
+    headers: { origin: app, "x-editor-profile": initial.profileId },
+    data: { expectedVersion: initial.editVersion, document: { ...initial.document, links } },
+  });
+  expect(seeded.status()).toBe(200);
+  await page.reload();
   await editorSection(page, "Embeds");
   for (const [index, embed] of [lastFm, spotify].entries()) {
     await page.getByRole("button", { name: "Add embed", exact: true }).click();
@@ -40,12 +50,12 @@ test("saves and publishes ordered sandboxed embeds in Stacked and Split layouts"
   const live = page.frameLocator('iframe[title^="Private local profile preview"]');
   await expect(live.getByRole("list", { name: "Profile embeds" }).getByRole("heading")).toHaveText([spotify.title, lastFm.title]);
   expect(requests).toEqual([]);
-  await live.getByRole("button", { name: `Load Last.fm embed: ${lastFm.title}` }).click();
+  await live.getByRole("button", { name: `${lastFm.loadName}: ${lastFm.title}` }).click();
   await expect(live.frameLocator(`iframe[title="${lastFm.title} (Last.fm)"]`).getByText("Last.fm fixture")).toBeVisible();
 
   const preview = await context.newPage();
   await preview.goto(`${app}/preview`);
-  await preview.getByRole("button", { name: `Load Spotify embed: ${spotify.title}` }).click();
+  await preview.getByRole("button", { name: `${spotify.loadName}: ${spotify.title}` }).click();
   await expect(preview.frameLocator(`iframe[title="${spotify.title} (Spotify)"]`).getByText("Spotify fixture")).toBeVisible();
 
   await publish(page);
@@ -55,15 +65,23 @@ test("saves and publishes ordered sandboxed embeds in Stacked and Split layouts"
   await publicProfile.goto(publicUrl);
   const cards = publicProfile.getByRole("list", { name: "Profile embeds" });
   const items = cards.getByRole("listitem");
+  const profileHeader = publicProfile.locator("main header");
+  const profileCard = profileHeader.locator("..");
   await expect(cards.getByRole("heading")).toHaveText([spotify.title, lastFm.title]);
+  await expect(publicProfile.getByRole("navigation", { name: "Profile links" }).getByRole("link")).toHaveCount(links.length);
+  const stackedProfile = (await profileCard.boundingBox())!;
   const first = (await items.nth(0).boundingBox())!;
   const second = (await items.nth(1).boundingBox())!;
-  expect(second.x).toBe(first.x);
+  expect(first.x).toBe(stackedProfile.x);
+  expect(first.width).toBe(stackedProfile.width);
+  expect(first.y).toBeGreaterThan(stackedProfile.y + stackedProfile.height);
+  expect(second.x).toBe(stackedProfile.x);
+  expect(second.width).toBe(stackedProfile.width);
   expect(second.y).toBeGreaterThan(first.y + first.height);
   expect(await publicProfile.locator("iframe").count()).toBe(0);
 
   for (const embed of [spotify, lastFm]) {
-    await publicProfile.getByRole("button", { name: `Load ${embed.provider} embed: ${embed.title}` }).click();
+    await publicProfile.getByRole("button", { name: `${embed.loadName}: ${embed.title}` }).click();
     const iframe = publicProfile.locator(`iframe[title="${embed.title} (${embed.provider})"]`);
     await expect(iframe).toHaveAttribute("sandbox", embed === spotify ? "allow-scripts allow-same-origin" : "allow-scripts");
     await expect(iframe).toHaveAttribute("referrerpolicy", "no-referrer");
@@ -79,9 +97,11 @@ test("saves and publishes ordered sandboxed embeds in Stacked and Split layouts"
   await publicProfile.reload();
   const left = (await items.nth(0).boundingBox())!;
   const right = (await items.nth(1).boundingBox())!;
-  const profileHeader = (await publicProfile.locator("main header").boundingBox())!;
-  expect(left.x).toBe(profileHeader.x);
-  expect(left.y).toBeGreaterThan(profileHeader.y + profileHeader.height);
+  const splitProfile = (await profileCard.boundingBox())!;
+  const splitIdentity = (await profileHeader.boundingBox())!;
+  expect(splitProfile.height).toBeGreaterThan(splitIdentity.height);
+  expect(left.x).toBe(splitProfile.x);
+  expect(left.y).toBeGreaterThan(splitProfile.y + splitProfile.height);
   expect(right.x).toBeGreaterThan(left.x + left.width);
   expect(right.y).toBe(left.y);
 

@@ -23,6 +23,13 @@ describe("profile embeds", () => {
     });
   });
 
+  it("resolves localized URLs to the same validated provider sources", () => {
+    const localizedLastFm = "https://www.last.fm/es/user/Petra1999";
+    const localizedSpotify = "https://open.spotify.com/intl-de/track/7GhIk7Il098yCjg4BQjzvb?si=share-id";
+    expect(resolveProfileEmbed(localizedLastFm)).toEqual(resolveProfileEmbed(lastFm.url));
+    expect(resolveProfileEmbed(localizedSpotify)).toEqual(resolveProfileEmbed(spotify.url));
+  });
+
   it.each([
     "<iframe src=\"https://www.last.fm/user/Petra1999\"></iframe>",
     "javascript:alert(1)",
@@ -33,8 +40,10 @@ describe("profile embeds", () => {
     "https://anyone@www.last.fm/user/Petra1999",
     "https://www.last.fm/user/Petra1999\n",
     "https://www.last.fm/user/%2FPetra1999",
+    "https://www.last.fm/es%2fuser%2fPetra1999",
     "https://petracoding.github.io/neocities/widgets/everything",
     "https://open.spotify.com/redirect?uri=7GhIk7Il098yCjg4BQjzvb",
+    "https://open.spotify.com/intl-de/redirect?uri=7GhIk7Il098yCjg4BQjzvb",
   ])("rejects unsupported input %j", url => {
     expect(profileDocumentSchema.safeParse({ ...defaultProfileDocument, embeds: [{ ...lastFm, url }] }).success).toBe(false);
   });

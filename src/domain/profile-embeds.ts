@@ -9,7 +9,7 @@ const spotifyPlayer = "https://open.spotify.com/embed/";
 export const profileEmbedFrameSources = [lastFmWidget, spotifyPlayer];
 
 export function resolveProfileEmbed(url: string) {
-  const lastFm = /^https:\/\/(?:www\.)?last\.fm\/user\/([a-z][a-z0-9_-]{1,14})\/?$/i.exec(url);
+  const lastFm = /^https:\/\/(?:www\.)?last\.fm\/(?:[a-z]{2}\/)?user\/([a-z][a-z0-9_-]{1,14})\/?$/i.exec(url);
   if (lastFm) {
     const username = lastFm[1];
     return {
@@ -20,7 +20,7 @@ export function resolveProfileEmbed(url: string) {
     };
   }
 
-  const spotify = /^https:\/\/open\.spotify\.com\/(?:embed\/)?(track|album|playlist)\/([a-zA-Z0-9]{22})\/?(?:\?[a-zA-Z0-9_=&%-]*)?$/.exec(url);
+  const spotify = /^https:\/\/open\.spotify\.com\/(?:intl-[a-z]{2}\/)?(?:embed\/)?(track|album|playlist)\/([a-zA-Z0-9]{22})\/?(?:\?[a-zA-Z0-9_=&%-]*)?$/.exec(url);
   if (spotify) {
     const [, kind, id] = spotify;
     return {
