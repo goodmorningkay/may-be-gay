@@ -203,7 +203,24 @@
 }
 
 @media (min-width: 48rem) {
-  .profile[data-layout="split"] .frame { max-width: 1040px; }
+  .profilePage { display: flex; flex-direction: column; min-block-size: 100svh; }
+  .profilePage > .profile[data-layout="split"] { flex: 1; min-block-size: 0; }
+  .profile[data-layout="split"] {
+    display: flex;
+    flex-direction: column;
+    padding-block: var(--profile-inset-top, 0px) var(--profile-inset-bottom, 0px);
+  }
+  .profile[data-layout="split"] .frame {
+    display: flex;
+    flex: 1 0 auto;
+    flex-direction: column;
+    max-width: 1040px;
+  }
+  /* Give the card equal space above and below when the content beneath it fits. */
+  .profile[data-layout="split"] .frame::before { content: ""; min-block-size: clamp(32px, 4vw, 78px); }
+  .profile[data-layout="split"] .frame::before,
+  .profile[data-layout="split"] .belowCard { flex: 1 1 0; }
+  .profile[data-layout="split"] .footer { margin-block-end: 32px; }
   .profile[data-layout="split"] .content { grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); gap: clamp(30px, 6vw, 74px); }
   .profile[data-layout="split"] .destinations { padding-top: 24px; }
   .profile[data-layout="split"] .identity { text-align: start; }

@@ -155,21 +155,23 @@ export function ProfileView({
           </div>
         </div>
 
-        {profile.embeds?.length ? <ul className={styles.embeds} aria-label="Profile embeds">
-          {profile.embeds.map(embed => {
-            const source = resolveProfileEmbed(embed.url);
-            return source && <ProfileEmbed key={`${embed.id}:${source.src}`} title={embed.title} source={source} />;
-          })}
-        </ul> : null}
+        <div className={styles.belowCard}>
+          {profile.embeds?.length ? <ul className={styles.embeds} aria-label="Profile embeds">
+            {profile.embeds.map(embed => {
+              const source = resolveProfileEmbed(embed.url);
+              return source && <ProfileEmbed key={`${embed.id}:${source.src}`} title={embed.title} source={source} />;
+            })}
+          </ul> : null}
 
-        <footer className={styles.footer}>
-          <p className={styles.attribution}>
-            A page on <a href={origin}>{siteDomain}</a>
-          </p>
-          <a href={support.href}>
-            Report this page or get support
-          </a>
-        </footer>
+          <footer className={styles.footer}>
+            <p className={styles.attribution}>
+              A page on <a href={origin}>{siteDomain}</a>
+            </p>
+            <a href={support.href}>
+              Report this page or get support
+            </a>
+          </footer>
+        </div>
       </div>
       {profile.clickToEnter ? <ClickToEnter displayName={profile.displayName} username={username} hasMusic={Boolean(music && profile.music)} /> : null}
     </main>
