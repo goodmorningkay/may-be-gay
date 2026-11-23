@@ -108,8 +108,8 @@ only from ready owned assets. Every URL in that private media map is the
 same-origin authenticated `/api/media/[id]/content` path.
 
 `LivePreview` portals the renderer into an empty same-origin `srcdoc` iframe,
-copying the application's existing styles. The iframe contains no authored HTML,
-scripts, remote document URL or additional profile API read. Its real viewport
+copying the application's existing styles. The renderer loads the supported
+third-party frames only when the editor user chooses to load an embed. Its real viewport
 is 375 px or 960 px, so the renderer's responsive media queries work accurately
 instead of responding to the whole editor window. Its scroll region and title
 are accessible. A stylesheet observer is disconnected on unmount. Renderer links
@@ -128,11 +128,11 @@ new selections; an unavailable existing selection is labelled and can be cleared
 UUID case is normalized when matching existing references.
 
 Upload sends the raw File body to `POST /api/media?kind=image|audio`, never
-multipart or an owner ID. The UI states static JPEG/PNG/WebP, 5 MiB / 16 MP,
-and MP3, 10 MiB / 180 seconds. Client byte checks are convenience only; backend
-validation remains authoritative. A 202 upload means accepted for processing,
-not ready. The quota UI uses actual server charges and explains retained assets,
-derivatives and upload reservations (24 MiB/image, 50 MiB/MP3).
+multipart or an owner ID. The UI lists static JPEG/PNG/WebP (5 MiB, 16 MP) and
+MP3/WAV/FLAC (10 MiB, 180 seconds). The worker validates uploads and converts
+WAV and FLAC to MP3. An HTTP 202 response confirms the upload is queued for
+processing. The quota UI uses actual server charges and includes upload
+reservations (24 MiB per image, 50 MiB per audio file).
 
 Processing refresh runs immediately plus at most 20 additional checks spaced
 three seconds apart; each list request has a 15-second abort timeout. Polling

@@ -11,7 +11,7 @@ RUN cc -std=c11 -O2 -Wall -Wextra -Werror /build/guardian.c -o /build/may-be-gua
 FROM node:22.19.0-bookworm-slim@sha256:4a4884e8a44826194dff92ba316264f392056cbe243dcc9fd3551e71cea02b90 AS base
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg util-linux tini ca-certificates libpq5 liblz4-1 libzstd1 \
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg flac util-linux tini ca-certificates libpq5 liblz4-1 libzstd1 \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /app/var/media /app/var/mail /app/var/service /app/var/logs /app/var/recovery /app/var/native /app/var/backups /app/var/secrets \
     && chown -R node:node /app/var && chmod 700 /app/var/*

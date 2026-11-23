@@ -48,8 +48,11 @@ async function main() { try {
     case "fixtures": {
       const directory = "/tmp/may-be-e2e-fixtures"; await mkdir(directory, { recursive: true });
       await sharp({ create: { width: 96, height: 80, channels: 3, background: "#b45734" } }).png().toFile(`${directory}/image.png`);
-      execFileSync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=12", "-codec:a", "libmp3lame", "-b:a", "96k", "-map_metadata", "-1", `${directory}/tone.mp3`]);
-      result = { image: `${directory}/image.png`, audio: `${directory}/tone.mp3` }; break;
+      const audio = `${directory}/tone.mp3`, wav = `${directory}/tone.wav`, flac = `${directory}/tone.flac`;
+      execFileSync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=12",
+        "-c:a", "libmp3lame", "-b:a", "96k", "-map_metadata", "-1", audio,
+        "-c:a", "pcm_s16le", wav, "-c:a", "flac", flac]);
+      result = { image: `${directory}/image.png`, audio, wav, flac }; break;
     }
     default: throw new Error("Unknown fixture command");
   }

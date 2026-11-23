@@ -118,7 +118,7 @@ export async function createArchive(kind: "snapshot" | "journal", options: { url
               // Validate retained bytes too: a truncated/corrupt source must not
               // become a newly authenticated, apparently healthy backup.
               if (object.contentType === "image/webp") await validateStoredWebp(data);
-              else await validateMedia(data, "audio");
+              else await validateMedia(data, "mp3");
               const file = path.join(work, "media.tmp"); await writePrivate(file, data);
               await saveFile(m, file, work, key, object.bytes, object); await rm(file);
             }

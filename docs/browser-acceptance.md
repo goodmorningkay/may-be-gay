@@ -30,7 +30,7 @@ matching official Noble browser image pinned by digest. Authority:
 [npm package metadata](https://registry.npmjs.org/@playwright/test/1.65.0),
 [Playwright Docker documentation](https://playwright.dev/docs/docker).
 The image supplies all three browser engines/native libraries; the test image
-adds FFmpeg/util-linux/PulseAudio, the compiled native guardian and Tini, and
+adds FFmpeg, FLAC, util-linux, PulseAudio, the compiled native guardian and Tini, and
 copies the official pinned Node 22.19.0 binary. A private parser-lock volume and
 maintenance-marker volume are shared by the app and fixture runner. The
 host only needs build dependencies from `npm ci`; it needs no browser or system

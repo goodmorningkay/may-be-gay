@@ -87,12 +87,13 @@ function runParser(...args: string[]) {
   return runBoundedProcess(process.execPath, ["--jitless", "--max-old-space-size=128", "--max-semi-space-size=8", path.join(process.cwd(), "src/server/media/parser.cjs"), ...args]);
 }
 
-export async function validateMedia(data: Buffer, kind: MediaKind, locator?: ScratchLocator) {
-  return withParserInput(data, inputLimit(kind), locator, async (input, dir) => {
+export async function validateMedia(data: Buffer, kind: MediaKind | "mp3", locator?: ScratchLocator) {
+  const byteLimit = inputLimit(kind === "image" ? "image" : "audio");
+  return withParserInput(data, byteLimit, locator, async (input, dir) => {
     const original = path.join(dir, "validated"), display = path.join(dir, "display");
     const result = resultSchema.parse(JSON.parse(await runParser(kind, input, original, display)));
     const full = await readFile(original), small = kind === "image" && !result.sharedVariants ? await readFile(display) : full;
-    if (!full.length || full.length > inputLimit(kind) || (kind === "image" && (!small.length || small.length > DISPLAY_BYTES))) throw invalidMedia();
+    if (!full.length || full.length > byteLimit || (kind === "image" && (!small.length || small.length > DISPLAY_BYTES))) throw invalidMedia();
     return { ...result, original: full, display: small };
   });
 }
