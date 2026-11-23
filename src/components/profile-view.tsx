@@ -3,10 +3,12 @@ import * as React from "react";
 
 import type { PublicMedia, PublicMediaMap } from "@/domain/media";
 import { getPublicDocument, getThemeColors, isCopyableLink, linkUrlSchema, type ProfileDocument } from "@/domain/profile";
+import { resolveProfileEmbed } from "@/domain/profile-embeds";
 
 import { ClickToEnter } from "./click-to-enter";
 import { CopyLink } from "./copy-link";
 import { MusicPlayer } from "./music-player";
+import { ProfileEmbed } from "./profile-embed";
 
 import "./brand.module.css";
 import styles from "./profile-view.module.css";
@@ -18,6 +20,7 @@ type ProfileViewProps = {
   siteDomain: string;
   media?: PublicMediaMap;
   supportHref?: string;
+  fullViewport?: boolean;
 };
 
 function platformOrigin(siteDomain: string): string {
@@ -71,6 +74,7 @@ export function ProfileView({
   siteDomain,
   media = {},
   supportHref,
+  fullViewport = false,
 }: ProfileViewProps): React.JSX.Element {
   const profile = getPublicDocument(document);
   const origin = platformOrigin(siteDomain);
@@ -92,7 +96,7 @@ export function ProfileView({
 
   return (
     <main
-      className={styles.profile}
+      className={fullViewport ? `${styles.profile} ${styles.fullViewport}` : styles.profile}
       data-preset={profile.theme.preset}
       data-layout={profile.theme.layout}
       data-font={profile.theme.font}
@@ -151,7 +155,14 @@ export function ProfileView({
           </div>
         </div>
 
-        <div className={styles.footerArea}>
+        <div className={styles.belowCard}>
+          {profile.embeds?.length ? <ul className={styles.embeds} aria-label="Profile embeds">
+            {profile.embeds.map(embed => {
+              const source = resolveProfileEmbed(embed.url);
+              return source && <ProfileEmbed key={`${embed.id}:${source.src}`} title={embed.title} source={source} />;
+            })}
+          </ul> : null}
+
           <footer className={styles.footer}>
             <p className={styles.attribution}>
               A page on <a href={origin}>{siteDomain}</a>

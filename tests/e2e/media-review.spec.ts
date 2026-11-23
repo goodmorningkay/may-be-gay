@@ -1,6 +1,71 @@
 import { randomBytes } from "node:crypto";
 import { request as httpsRequest } from "node:https";
-import { test, expect, account, app, fixture, state, editorSection } from "./helpers";
+import sharp from "sharp";
+import { gifFixture } from "../media/gif-fixture";
+import { test, expect, account, app, fixture, state, editorSection, saved, publish } from "./helpers";
+
+test("a GIF upload animates the avatar and background after publication", async ({ page, context, expectedErrors }) => {
+  // Account setup opens the editor before a profile exists.
+  expectedErrors.push(/^Console: Failed to load resource: the server responded with a status of 404.*\[https:\/\/app\.may-be\.localhost\/api\/profile\]$/);
+  await account(page, "gif-media");
+  await editorSection(page, "Media");
+  const input = await gifFixture();
+  const picker = page.getByLabel("Upload image", { exact: false });
+  await expect(picker).toHaveAttribute("accept", /image\/gif/);
+  await expect(picker).toHaveAccessibleDescription(/16 megapixels.*120 frames/);
+  await expect(picker).toBeEnabled();
+  const upload = page.waitForResponse(r => r.url().endsWith("/api/media?kind=image") && r.request().method() === "POST");
+  await picker.setInputFiles({ name: "profile.gif", mimeType: "image/gif", buffer: input });
+  expect((await upload).status()).toBe(202);
+  await fixture("drain");
+  await page.getByRole("button", { name: "Refresh media", exact: true }).click();
+
+  const avatar = page.getByLabel("Avatar", { exact: true });
+  await expect(avatar.locator("option")).toHaveCount(2);
+  const assetId = await avatar.locator("option").nth(1).getAttribute("value");
+  expect(assetId).toBeTruthy();
+  await avatar.selectOption(assetId!);
+  await page.getByLabel("Background image", { exact: true }).selectOption(assetId!);
+  await saved(page);
+
+  const preview = page.frameLocator("iframe");
+  const profileImages = (view: typeof preview | typeof page) => [view.locator('main img[aria-hidden="true"]'), view.getByRole("img", { name: /’s avatar$/ })];
+  for (const image of profileImages(preview)) {
+    await expect(image).toHaveAttribute("src", `/api/media/${assetId}/content`);
+    await expect.poll(() => image.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBe(1280);
+  }
+
+  await publish(page);
+  const visitor = await context.newPage();
+  expect((await visitor.goto("https://gif-media.may-be.localhost"))?.status()).toBe(200);
+  const [background, portrait] = profileImages(visitor);
+  await expect(background).toHaveAttribute("src", /^https:\/\/media\.may-be\.localhost\/media\/.+\.webp$/);
+  const url = (await background.getAttribute("src"))!;
+  await expect(portrait).toHaveAttribute("src", url);
+  const response = await context.request.get(url);
+  expect(response.status()).toBe(200);
+  expect(response.headers()["content-type"]).toBe("image/webp");
+  const body = await response.body();
+  expect(body.length).toBeLessThan(input.length);
+  expect(await sharp(body, { animated: true }).metadata()).toMatchObject({ pages: 2, delay: [300, 500], loop: 0 });
+
+  for (const image of [background, portrait]) {
+    await expect.poll(() => image.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBe(1280);
+  }
+  const [wall, face] = await Promise.all([background.boundingBox(), portrait.boundingBox()]);
+  const colors = { background: new Set<string>(), avatar: new Set<string>() };
+  async function sample(x: number, y: number) {
+    const pixel = await visitor.screenshot({ clip: { x: Math.floor(x), y: Math.floor(y), width: 1, height: 1 } });
+    const [red, , blue] = await sharp(pixel).raw().toBuffer();
+    return red > blue + 30 ? "red" : blue > red + 30 ? "blue" : "other";
+  }
+  await expect.poll(async () => {
+    colors.background.add(await sample(wall!.x + 4, wall!.y + 4));
+    colors.avatar.add(await sample(face!.x + face!.width / 2, face!.y + face!.height / 2));
+    return [colors.background.has("red"), colors.background.has("blue"), colors.avatar.has("red"), colors.avatar.has("blue")];
+  }).toEqual([true, true, true, true]);
+  await visitor.close();
+});
 
 test("the media library retains the original editor identity after a shared-cookie account switch", async ({ page, context, expectedErrors }) => {
   expectedErrors.push(/^Console: Failed to load resource: the server responded with a status of (404|409).*\[https:\/\/app\.may-be\.localhost\/api\/(profile|media)/);

@@ -59,6 +59,17 @@ describe("public profile renderer", () => {
     expect(html.match(/<li>/g)).toHaveLength(2);
   });
 
+  it("renders escaped embed titles and fallback links below the profile links before loading a frame", () => {
+    const profile = createExampleProfile();
+    profile.embeds = [{ id: "9bcefb7c-f0df-4ed5-a8f6-d93f77cb6d61", title: "<b>Recent tracks</b>", url: "https://www.last.fm/user/Petra1999" }];
+    const html = render(profile);
+    expect(html.indexOf('aria-label="Profile embeds"')).toBeGreaterThan(html.indexOf('aria-label="Profile links"'));
+    expect(html).toContain("&lt;b&gt;Recent tracks&lt;/b&gt;");
+    expect(html).toContain('href="https://www.last.fm/user/Petra1999"');
+    expect(html).not.toContain("Load Last.fm embed");
+    expect(html).not.toContain("<iframe");
+  });
+
   it("rejects invalid runtime data even if a caller bypasses TypeScript", () => {
     const profile = createExampleProfile();
     expect(() => render({ ...profile, html: "<script>" } as ProfileDocument)).toThrow();

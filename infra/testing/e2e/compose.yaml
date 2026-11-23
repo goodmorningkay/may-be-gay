@@ -74,6 +74,7 @@ services:
       - mobile-b.may-be.localhost:127.0.0.1
       - lifecycle-a.may-be.localhost:127.0.0.1
       - lifecycle-b.may-be.localhost:127.0.0.1
+      - gif-media.may-be.localhost:127.0.0.1
       - unknown.may-be.localhost:127.0.0.1
   browser:
     image: ${E2E_IMAGE}

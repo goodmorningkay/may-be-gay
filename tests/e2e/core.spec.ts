@@ -12,12 +12,25 @@ function profileCardBounds(page: Page) {
   });
 }
 
+async function visitHomepage(page: Page) {
+  // Keep the homepage open until the preview image has finished downloading.
+  const [image] = await Promise.all([
+    page.waitForResponse(response => response.url().startsWith(apex) && /\/_next\/static\/media\/flowers\.[^/]+\.png$/.test(response.url())),
+    page.goto(apex),
+  ]);
+  expect(image.ok()).toBe(true);
+  expect(await image.finished()).toBeNull();
+  await page.evaluate(async () => { await document.fonts.ready; });
+}
+
 test("homepage keeps the requested address through public signup and verification", async ({ page, expectedErrors }, info) => {
   expectedErrors.push(/^Console: Failed to load resource: the server responded with a status of 404.*\[https:\/\/app\.may-be\.localhost\/api\/profile\]$/);
   const username = `${info.project.name}-homepage`;
   const email = `${username}@example.invalid`;
 
-  await page.goto(apex);
+  await visitHomepage(page);
+  await expect(page.locator("html")).toHaveCSS("background-color", "rgb(18, 18, 18)");
+  await expect(page.locator('meta[name="viewport"]')).not.toHaveAttribute("content", /viewport-fit=cover/);
   await expect(page.getByRole("link", { name: "Log in" })).toHaveAttribute("href", `${app}/sign-in`);
   await page.getByRole("textbox", { name: "Username" }).fill(username);
   await page.getByRole("button", { name: "Claim address" }).click();
@@ -45,13 +58,15 @@ test("homepage keeps the requested address through public signup and verificatio
   await page.getByLabel("Password").fill(password);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByRole("textbox", { name: "Username" })).toHaveValue(username);
+  await page.evaluate(async () => { await document.fonts.ready; });
 
-  await page.goto(apex);
+  await visitHomepage(page);
   await page.getByRole("link", { name: "Log in" }).click();
   await expect(page).toHaveURL(`${app}/editor`);
   await expect(page.getByRole("textbox", { name: "Username" })).toBeVisible();
+  await page.evaluate(async () => { await document.fonts.ready; });
 
-  await page.goto(apex);
+  await visitHomepage(page);
   await page.getByRole("textbox", { name: "Username" }).fill(username);
   await page.getByRole("button", { name: "Claim address" }).click();
   await expect(page).toHaveURL(`${app}/editor?username=${username}`);
@@ -75,6 +90,7 @@ test("homepage keeps the requested address through public signup and verificatio
     expect(sample.scrollHeight).toBe(sample.height);
   }
   await page.goto(`${apex}/privacy`);
+  await expect(page.locator("html")).toHaveCSS("background-color", "rgb(18, 18, 18)");
   await expect(page.getByRole("navigation", { name: "Policies" }).getByRole("link", { name: "Privacy" })).toHaveAttribute("aria-current", "page");
   await expect(page.getByRole("heading", { name: "What is public" })).toBeVisible();
   await expect(page.getByText("Development draft")).toHaveCount(0);
@@ -82,6 +98,7 @@ test("homepage keeps the requested address through public signup and verificatio
   expectedErrors.push(/^Console: Failed to load resource: the server responded with a status of 404.*\[https:\/\/unknown\.may-be\.localhost\/\]$/);
   const missing = await page.goto("https://unknown.may-be.localhost/");
   expect(missing?.status()).toBe(404);
+  await expect(page.locator("html")).toHaveCSS("background-color", "rgb(18, 18, 18)");
   await expect(page.getByRole("link", { name: "Go to may-be.gay", exact: true })).toHaveAttribute("href", apex);
 });
 
@@ -90,10 +107,10 @@ test("the draft preview centres a short Split card and lets a tall card scroll",
   await account(page, `${info.project.name}-layout`);
   await Promise.all(page.frames().map(frame => frame.evaluate(async () => { await document.fonts.ready; })));
   const current = await state(context);
-  const saveLayout = async (expectedVersion: number, links = current.document.links) => {
+  const saveLayout = async (expectedVersion: number, links = current.document.links, embeds = current.document.embeds) => {
     const response = await context.request.put(`${app}/api/profile`, {
       headers: { origin: app, "x-editor-profile": current.profileId },
-      data: { expectedVersion, document: { ...current.document, links, theme: { ...current.document.theme, layout: "split" } } },
+      data: { expectedVersion, document: { ...current.document, links, embeds, theme: { ...current.document.theme, layout: "split" } } },
     });
     expect(response.ok()).toBe(true);
     return (await response.json()).editVersion as number;
@@ -104,13 +121,23 @@ test("the draft preview centres a short Split card and lets a tall card scroll",
   const topPadding = Math.min(78, Math.max(32, stacked.width * 0.04));
   expect(stacked.top - stacked.profileTop).toBeCloseTo(topPadding, 0);
 
-  const splitVersion = await saveLayout(current.editVersion);
+  let splitVersion = await saveLayout(current.editVersion);
   await page.reload();
   const split = await profileCardBounds(page);
   if (split.width >= 768) {
     expect(Math.abs(split.top + split.bottom - split.profileTop - split.height)).toBeLessThan(2);
     expect(split.scrollHeight).toBe(split.height);
     await expect(page.getByRole("link", { name: "Report this page or get support" })).toBeInViewport();
+    splitVersion = await saveLayout(splitVersion, current.document.links, [{
+      id: crypto.randomUUID(), title: "Recent tracks", url: "https://www.last.fm/user/Petra1999",
+    }]);
+    const viewport = page.viewportSize()!;
+    await page.setViewportSize({ ...viewport, height: 1000 });
+    await page.reload();
+    await expect(page.getByRole("heading", { name: "Recent tracks" })).toBeInViewport();
+    const withEmbed = await profileCardBounds(page);
+    expect(Math.abs(withEmbed.top + withEmbed.bottom - withEmbed.profileTop - withEmbed.height)).toBeLessThan(2);
+    await page.setViewportSize(viewport);
   } else {
     expect(split.top - split.profileTop).toBeCloseTo(topPadding, 0);
   }
@@ -195,6 +222,7 @@ test("owners edit privately, upload real media, publish and remain isolated", as
     await page.getByLabel("Layout", { exact: true }).selectOption("split");
     await page.getByLabel("Font", { exact: true }).selectOption("mono");
     await page.getByLabel("Background treatment", { exact: true }).selectOption("gradient");
+    await page.getByLabel("Gradient start", { exact: true }).fill("#4b2030");
     await page.getByLabel("Gradient direction", { exact: true }).selectOption("diagonal");
     await page.getByLabel("Link button shape", { exact: true }).selectOption("pill");
     await page.getByLabel("Spacing", { exact: true }).selectOption("airy");
@@ -215,7 +243,9 @@ test("owners edit privately, upload real media, publish and remain isolated", as
     await page.getByLabel("Background image", { exact: true }).selectOption(image!);
     expect((await sibling.request.get(`${app}/api/media/${image}/content`)).status()).toBe(404);
     upload = page.waitForResponse(r => r.url().includes("/api/media?kind=audio") && r.request().method() === "POST");
-    await page.getByLabel("Upload MP3", { exact: false }).setInputFiles(files.audio);
+    // Exercise both lossless inputs alongside the existing MP3 upload path.
+    const track = prefix === "chromium" ? files.wav : prefix === "firefox" ? files.flac : files.audio;
+    await page.getByLabel("Upload audio", { exact: true }).setInputFiles(track);
     expect((await upload).status()).toBe(202);
     await fixture("drain"); await page.getByRole("button", { name: "Refresh media", exact: true }).click();
     await expect(page.getByLabel("Profile music", { exact: true }).locator("option")).toHaveCount(2);
@@ -224,6 +254,11 @@ test("owners edit privately, upload real media, publish and remain isolated", as
     await saved(page);
     const media = await (await context.request.get(`${app}/api/media`, { headers: { "x-editor-profile": (await state(context)).profileId } })).json();
     expect(media.assets.filter((a: { state: string }) => a.state === "ready")).toHaveLength(2);
+    const musicId = await page.getByLabel("Profile music", { exact: true }).inputValue();
+    const privateTrack = await context.request.get(`${app}/api/media/${musicId}/content`);
+    expect(privateTrack.status()).toBe(200);
+    expect(privateTrack.headers()["content-type"]).toBe("audio/mpeg");
+    expect((await privateTrack.body())[0]).toBe(0xff);
     expect(media.usage.chargedBytes).toBeGreaterThan(0); expect(media.usage.chargedBytes).toBeLessThan(media.quota.limitBytes);
     // The preview still uses real iframe viewport sizes and private media reads under CSP.
     const mobileView = page.getByRole("group", { name: "Editor view" });
@@ -241,17 +276,47 @@ test("owners edit privately, upload real media, publish and remain isolated", as
     await editorSection(page, "About you");
     const viewsBefore = (await fixture("state", owner.email)).views;
     const preview = await context.newPage(); await preview.goto(`${app}/preview`);
+    await expect(preview.locator("html")).toHaveCSS("background-color", "rgb(18, 18, 18)");
     await expect(preview.getByRole("heading", { name: "Public chosen name", exact: true })).toBeVisible(); await preview.close();
     expect((await fixture("state", owner.email)).views).toBe(viewsBefore);
     // Publish directly after input: proves the action flushes valid pending edits.
     await page.getByLabel("Bio", { exact: true }).fill("Flushed on explicit publication"); await publish(page);
     const visitor = await context.newPage(); const response = await visitor.goto(`https://${prefix}-a.may-be.localhost`);
     expect(response?.status()).toBe(200);
+    await expect(visitor.locator("html")).toHaveCSS("background-color", "rgb(75, 32, 48)");
     await expect(visitor.getByText("Flushed on explicit publication", { exact: true })).toBeVisible();
     await expect(visitor.getByRole("link", { name: /^Hidden destination/ })).toHaveCount(0);
     await expect(visitor.getByRole("link", { name: /^Visible edited link/ })).toBeVisible();
     const html = await visitor.content(); expect(html).not.toContain(owner.email); expect(html).not.toContain("Private auth"); expect(html).not.toContain("private-draft=1"); expect(html).toContain("public-contact@example.invalid");
     await expect.poll(() => visitor.locator("img").first().evaluate((el: HTMLImageElement) => el.naturalWidth)).toBeGreaterThan(0);
+    if (info.project.name === "mobile") {
+      const originalViewport = visitor.viewportSize()!;
+      const viewport = { width: 430, height: 932 };
+      await visitor.setViewportSize(viewport);
+      const cdp = await context.newCDPSession(visitor);
+      try {
+        await cdp.send("Emulation.setSmallViewportHeightDifferenceOverride", { difference: 80 });
+        await cdp.send("Emulation.setSafeAreaInsetsOverride", { insets: { top: 59, right: 24, bottom: 34, left: 24 } });
+        await expect(visitor.locator('meta[name="viewport"]')).toHaveAttribute("content", /viewport-fit=cover/);
+        const profile = visitor.locator("main");
+        await expect(profile).toHaveCSS("padding-top", "91px");
+        await expect(profile).toHaveCSS("padding-bottom", "76px");
+        await expect(profile).toHaveCSS("padding-left", "44px");
+        await expect(profile).toHaveCSS("padding-right", "44px");
+        await expect(profile).toHaveCSS("min-block-size", `${viewport.height}px`);
+        const background = profile.locator('img[aria-hidden="true"]');
+        await expect.poll(() => background.boundingBox()).toEqual({ x: 0, y: 0, ...viewport });
+
+        await visitor.setViewportSize({ width: 900, height: 932 });
+        await expect(profile).toHaveCSS("padding-top", "59px");
+        await expect(profile).toHaveCSS("padding-bottom", "34px");
+      } finally {
+        await cdp.send("Emulation.setSmallViewportHeightDifferenceOverride", { difference: 0 });
+        await cdp.send("Emulation.setSafeAreaInsetsOverride", { insets: {} });
+        await cdp.detach();
+        await visitor.setViewportSize(originalViewport);
+      }
+    }
     const audio = visitor.locator("audio");
     await expect(audio).toHaveAttribute("preload", "none"); await expect(audio).toHaveAttribute("controls", "");
     await expect(visitor.getByLabel("Volume", { exact: true })).toHaveValue("0.2");
@@ -269,6 +334,7 @@ test("owners edit privately, upload real media, publish and remain isolated", as
     await visitor.getByRole("button", { name: "Pause music", exact: true }).click();
     const audioURL = await audio.getAttribute("src");
     const range = await context.request.get(audioURL!, { headers: { range: "bytes=0-31" } }); expect(range.status()).toBe(206); expect((await range.body()).length).toBe(32);
+    expect(range.headers()["content-type"]).toBe("audio/mpeg");
     await expect.poll(async () => (await fixture("state", owner.email)).views).toBeGreaterThan(viewsBefore);
     const clicked = visitor.waitForResponse(r => r.url().endsWith("/api/metrics") && r.request().postDataJSON()?.event === "click");
     const opened = context.waitForEvent("page");

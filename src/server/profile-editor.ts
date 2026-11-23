@@ -115,7 +115,7 @@ async function validateAssets(tx: Transaction, ownerId: string, document: Profil
     if (id && kinds.get(id.toLowerCase()) !== "image") throw new AppError(422, "INVALID_PROFILE_MEDIA", "Avatar and background must use your ready image assets.");
   }
   if (document.music && kinds.get(document.music.assetId.toLowerCase()) !== "audio") {
-    throw new AppError(422, "INVALID_PROFILE_MEDIA", "Music must use your ready MP3 asset.");
+    throw new AppError(422, "INVALID_PROFILE_MEDIA", "Choose a track marked ready in your media library.");
   }
   return ids;
 }
