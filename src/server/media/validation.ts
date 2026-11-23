@@ -44,7 +44,8 @@ export async function sweepMediaScratch(): Promise<void> {
   }
 }
 const resultSchema = z.object({ contentType: z.enum(["image/webp", "audio/mpeg"]), width: z.number().int().positive().optional(), height: z.number().int().positive().optional(),
-  displayWidth: z.number().int().positive().optional(), displayHeight: z.number().int().positive().optional(), durationMs: z.number().int().positive().max(180000).optional() }).strict();
+  displayWidth: z.number().int().positive().optional(), displayHeight: z.number().int().positive().optional(), durationMs: z.number().int().positive().max(180000).optional(),
+  sharedVariants: z.literal(true).optional() }).strict();
 export async function runBoundedProcess(command: string, args: string[], timeoutMs = PARSER_TIMEOUT_MS): Promise<string> {
   return new Promise((resolve, reject) => {
     let child: ReturnType<typeof spawnSupervised>;
@@ -90,7 +91,7 @@ export async function validateMedia(data: Buffer, kind: MediaKind, locator?: Scr
   return withParserInput(data, inputLimit(kind), locator, async (input, dir) => {
     const original = path.join(dir, "validated"), display = path.join(dir, "display");
     const result = resultSchema.parse(JSON.parse(await runParser(kind, input, original, display)));
-    const full = await readFile(original), small = kind === "image" ? await readFile(display) : full;
+    const full = await readFile(original), small = kind === "image" && !result.sharedVariants ? await readFile(display) : full;
     if (!full.length || full.length > inputLimit(kind) || (kind === "image" && (!small.length || small.length > DISPLAY_BYTES))) throw invalidMedia();
     return { ...result, original: full, display: small };
   });

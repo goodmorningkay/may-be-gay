@@ -52,7 +52,8 @@ the session against the asset independently and does **not** require this header
   changes and compress flat colors. The parser resizes GIF frames separately
   and compares the full-size WebP with a candidate up to 1280 pixels per side.
   For display, it selects the smallest file within 1 MiB that retains the most
-  frames and tries a smaller size if needed. Public rendering uses the display
+  frames and tries a smaller size if needed. Both variants share one private
+  object when the same encode satisfies both. Public rendering uses the display
   derivative.
   Original upload bytes are removed after validation commits.
 - Audio: MP3 only, 10 MiB, at most 180 seconds. A complete frame walk rejects

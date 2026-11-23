@@ -85,6 +85,18 @@ describe("media byte and parser bounds", () => {
       expect((await image.removeAlpha().raw().toBuffer()).equals(pixels)).toBe(true);
     }
   });
+  it.each([64, 1500])("preserves long GIF frame delays at %i pixels wide", async width => {
+    const input = await gifFixture(width, 240, 2, 3);
+    // The GIF control extension stores centiseconds in a 16-bit field.
+    const control = input.indexOf(Buffer.from([0x21, 0xf9, 0x04]));
+    expect(control).toBeGreaterThanOrEqual(0);
+    input.writeUInt16LE(7000, control + 4);
+    const result = await validateMedia(input, "image");
+    expect(result.displayWidth).toBe(Math.min(width, 1280));
+    for (const variant of [result.original, result.display]) {
+      expect(await sharp(variant).metadata()).toMatchObject({ pages: 2, delay: [70000, 500], loop: 3 });
+    }
+  });
   it("uses the full animation when a smaller encode erases the motion", async () => {
     const width = 1500, height = 100, frameBytes = width * height * 3;
     const pixels = Buffer.alloc(frameBytes * 2, 0x60);

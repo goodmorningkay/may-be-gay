@@ -103,13 +103,20 @@ async function animationVariants(data, input) {
   let decoded;
   async function encode(side) {
     let image = sharp(data, options);
+    const webp = { lossless: true, effort: 1 };
     if (maxSide > side) {
       decoded ??= await image.ensureAlpha().raw().timeout({ seconds: 10 }).toBuffer();
       image = await resizeAnimation(decoded, input, side);
+      const longDelay = delay?.some(ms => ms > 65535);
+      image.webp({ ...webp, loop: Math.min(loop ?? 1, 65535), delay: longDelay ? undefined : delay });
+      // Sharp's public options cap delays at 65,535 ms. The pinned native WebP
+      // pipeline accepts the full GIF range in its signed integer delay array.
+      if (longDelay) image.options.delay = delay;
+    } else {
+      image.webp(webp); // Transfer timing directly from the decoded GIF.
     }
     // Lossless WebP preserves subtle color changes in the retained frames.
-    const encoded = await image.webp({ lossless: true, effort: 1, delay, loop })
-      .timeout({ seconds: 10 }).toBuffer({ resolveWithObject: true });
+    const encoded = await image.timeout({ seconds: 10 }).toBuffer({ resolveWithObject: true });
     // Encode info reports input pages even when WebP combines identical frames.
     const pages = (await sharp(encoded.data).metadata()).pages ?? 1;
     return { ...encoded, pages };
@@ -141,9 +148,10 @@ async function processImage(data, output, display) {
   const input = await imageInput(data, false);
   const [full, small] = await (input.frames > 1 ? animationVariants(data, input) : stillVariants(data, input.options));
   fs.writeFileSync(output, full.data, { flag: "wx", mode: 0o600 });
-  fs.writeFileSync(display, small.data, { flag: "wx", mode: 0o600 });
+  const sharedVariants = full === small;
+  if (!sharedVariants) fs.writeFileSync(display, small.data, { flag: "wx", mode: 0o600 });
   process.stdout.write(JSON.stringify({ contentType: "image/webp", width: full.info.width, height: full.info.pageHeight ?? full.info.height,
-    displayWidth: small.info.width, displayHeight: small.info.pageHeight ?? small.info.height }));
+    displayWidth: small.info.width, displayHeight: small.info.pageHeight ?? small.info.height, ...(sharedVariants ? { sharedVariants } : {}) }));
 }
 function mp3Frames(data) {
   let start = 0, end = data.length;
