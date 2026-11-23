@@ -78,6 +78,10 @@
 .section > .hint + .hint { margin-top: 8px; }
 .sectionHeading { flex-wrap: wrap; }
 .sectionFooter { margin-top: 17px; padding-top: 17px; border-top: 1px solid var(--border-subtle); }
+.embedFields { min-width: 0; margin: 17px 0 0; padding: 12px; border: 1px solid var(--border-subtle); border-radius: var(--control-radius); }
+.embedFields legend { padding-inline: 4px; font-weight: 600; }
+.embedFields .sectionHeading { margin-top: 12px; }
+.sectionFooter > .rowMeta { margin-inline-start: 12px; }
 
 .field { display: grid; gap: 8px; min-width: 0; }
 .toggleField { display: grid; gap: 6px; margin-top: 17px; }

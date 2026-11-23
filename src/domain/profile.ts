@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { maxProfileEmbeds, profileEmbedSchema } from "./profile-embeds";
 
 /** Validate navigation targets without rewriting them or contacting the host. */
 export const linkUrlSchema = z.string().max(2048).refine(
@@ -95,6 +96,7 @@ export const profileDocumentSchema = z
     }).strict().nullable().optional(),
     clickToEnter: z.boolean().optional(),
     links: z.array(linkSchema).max(30),
+    embeds: z.array(profileEmbedSchema).max(maxProfileEmbeds).optional(),
     theme: z
       .object({
         preset: z.enum(["paper", "midnight", "blush", "forest", "sunset", "ocean"]),
@@ -134,6 +136,14 @@ export const profileDocumentSchema = z
         });
       }
       ids.add(id);
+    });
+    const embedIds = new Set<string>();
+    document.embeds?.forEach((embed, index) => {
+      const id = embed.id.toLowerCase();
+      if (embedIds.has(id)) {
+        context.addIssue({ code: "custom", path: ["embeds", index, "id"], message: "Each embed must have a unique ID." });
+      }
+      embedIds.add(id);
     });
   });
 
