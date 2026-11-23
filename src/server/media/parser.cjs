@@ -66,21 +66,48 @@ async function imageInput(data, storedWebp) {
   const meta = await sharp(data, options).metadata();
   const frames = meta.pages ?? 1;
   const frameHeight = meta.pageHeight ?? meta.height;
-  if (meta.format !== format || !meta.width || !frameHeight || frames > (options.animated ? MAX_FRAMES : 1) || meta.width * frameHeight * frames > MAX_PIXELS) fail();
-  return { options, animated: frames > 1, maxSide: Math.max(meta.width, frameHeight) };
+  const pixels = meta.width * frameHeight * frames;
+  if (meta.format !== format || !meta.width || !frameHeight || frames > (options.animated ? MAX_FRAMES : 1) || pixels > MAX_PIXELS) fail();
+  return { options, frames, pixels, maxSide: Math.max(meta.width, frameHeight) };
 }
-function encodeWebp(data, options, side, quality) {
+function encodeWebp(data, options, side, webp) {
   return sharp(data, options).rotate().resize({ width: side, height: side, fit: "inside", withoutEnlargement: true })
-    .webp({ quality, effort: 3 }).timeout({ seconds: 10 }).toBuffer({ resolveWithObject: true });
+    .webp(webp).timeout({ seconds: 10 }).toBuffer({ resolveWithObject: true });
+}
+async function animationVariants(data, { options, maxSide, pixels }) {
+  // Lossless WebP retains small palette changes and compresses flat graphics
+  // without the lossy encoder's frame-by-frame quantization.
+  const encode = side => encodeWebp(data, options, side, { lossless: true, effort: 1 });
+  const full = await encode(4096);
+  let small = maxSide > 1280 ? await encode(1280) : full;
+  if (small.data.length > MiB) {
+    // Target up to 1 MiB of decoded RGBA on the retry, since resampling can
+    // introduce many more colors than the original GIF palette.
+    const scale = Math.sqrt(MiB / (pixels * 4));
+    const side = Math.max(1, Math.min(640, Math.floor(maxSide * scale)));
+    small = await encode(side);
+  }
+  if (small !== full) {
+    // Sharp's encode info reports input pages. Inspect the encoded frames
+    // because downsizing can make consecutive, distinct frames identical.
+    const originalPages = (await sharp(full.data).metadata()).pages ?? 1;
+    if (maxSide > 4096 && originalPages === 1) fail();
+    const displayPages = (await sharp(small.data).metadata()).pages ?? 1;
+    if (displayPages < originalPages) small = full;
+  }
+  if (small.data.length > MiB) fail();
+  return [full.data.length <= 5 * MiB ? full : small, small];
+}
+async function stillVariants(data, options) {
+  const full = await encodeWebp(data, options, 4096, { quality: 85, effort: 3 });
+  if (full.data.length > 5 * MiB) fail();
+  const small = await encodeWebp(full.data, options, 1600, { quality: 80, effort: 3 });
+  if (small.data.length > MiB) fail();
+  return [full, small];
 }
 async function processImage(data, output, display) {
-  const { options, animated, maxSide } = await imageInput(data, false);
-  const full = await encodeWebp(data, options, 4096, 85);
-  if (full.data.length > 5 * MiB) fail();
-  // Encode the animated derivative from the GIF to avoid a second lossy pass.
-  let small = await encodeWebp(animated ? data : full.data, options, animated ? 1280 : 1600, animated ? 75 : 80);
-  if (animated && small.data.length > MiB) small = await encodeWebp(data, options, Math.min(640, Math.ceil(maxSide / 2)), 70);
-  if (small.data.length > MiB) fail();
+  const input = await imageInput(data, false);
+  const [full, small] = await (input.frames > 1 ? animationVariants(data, input) : stillVariants(data, input.options));
   fs.writeFileSync(output, full.data, { flag: "wx", mode: 0o600 });
   fs.writeFileSync(display, small.data, { flag: "wx", mode: 0o600 });
   process.stdout.write(JSON.stringify({ contentType: "image/webp", width: full.info.width, height: full.info.pageHeight ?? full.info.height,

@@ -12,6 +12,7 @@ test("a GIF upload animates the avatar and background after publication", async 
   const input = await gifFixture();
   const picker = page.getByLabel("Upload image", { exact: false });
   await expect(picker).toHaveAttribute("accept", /image\/gif/);
+  await expect(picker).toHaveAccessibleDescription(/16 megapixels.*120 frames/);
   await expect(picker).toBeEnabled();
   const upload = page.waitForResponse(r => r.url().endsWith("/api/media?kind=image") && r.request().method() === "POST");
   await picker.setInputFiles({ name: "profile.gif", mimeType: "image/gif", buffer: input });

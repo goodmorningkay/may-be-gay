@@ -47,10 +47,12 @@ the session against the asset independently and does **not** require this header
   decoded pixels including all GIF frames. GIF uploads may have up to 120
   frames. Container inspection rejects APNG and animated WebP uploads.
   Strict decoding produces a metadata-free WebP original (maximum 4096 pixels
-  per side, 5 MiB) and a display derivative (maximum 1600 pixels per side,
-  1 MiB). GIFs retain animation in both WebP variants. Animated display
-  derivatives start at up to 1280 pixels per side and are retried at a smaller
-  size if they exceed 1 MiB. Public rendering uses the display derivative.
+  per side, 5 MiB) and a display derivative (1 MiB, maximum 1600 pixels per
+  side for still images). Animated GIFs use lossless WebP to retain subtle frame
+  changes and compress flat colors. Animated display derivatives start at up to
+  1280 pixels per side. The parser uses a smaller size if the display exceeds 1 MiB and
+  can use the full-size WebP if downsizing loses frames and the full-size file
+  fits the display byte limit. Public rendering uses the display derivative.
   Original upload bytes are removed after validation commits.
 - Audio: MP3 only, 10 MiB, at most 180 seconds. A complete frame walk rejects
   free bitrate, reserved fields, mixed sample rate/channel configurations,

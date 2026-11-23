@@ -57,19 +57,61 @@ describe("media byte and parser bounds", () => {
     await expect(validateStoredWebp(result.display.subarray(0, -1))).rejects.toMatchObject({ code: "MEDIA_INVALID" });
     await expect(validateStoredWebp(input)).rejects.toMatchObject({ code: "MEDIA_INVALID" });
   }, 15_000);
+  it("keeps subtle palette changes in both animated WebPs", async () => {
+    const side = 200, frameBytes = side * side * 3;
+    const pixels = Buffer.concat([Buffer.alloc(frameBytes, 0x60), Buffer.alloc(frameBytes, 0x64)]);
+    const input = await sharp(pixels, { raw: { width: side, height: side * 2, pageHeight: side, channels: 3 } })
+      .gif({ delay: [300, 500], interPaletteMaxError: 0 }).toBuffer();
+    const result = await validateMedia(input, "image");
+    for (const variant of [result.original, result.display]) {
+      const image = sharp(variant, { animated: true });
+      expect(await image.metadata()).toMatchObject({ pages: 2, delay: [300, 500] });
+      expect((await image.removeAlpha().raw().toBuffer()).equals(pixels)).toBe(true);
+    }
+  });
+  it("uses the full animation when a smaller encode erases the motion", async () => {
+    const width = 1500, height = 100, frameBytes = width * height * 3;
+    const pixels = Buffer.alloc(frameBytes * 2, 0x60);
+    const changedPixel = frameBytes + (40 * width + 105) * 3;
+    pixels.fill(0x61, changedPixel, changedPixel + 3);
+    const input = await sharp(pixels, { raw: { width, height: height * 2, pageHeight: height, channels: 3 } })
+      .gif({ delay: [300, 500], interPaletteMaxError: 0, dither: 0 }).toBuffer();
+    const result = await validateMedia(input, "image");
+    expect(await sharp(result.display).metadata()).toMatchObject({ pages: 2, delay: [300, 500] });
+    expect(result.displayWidth).toBe(width);
+    expect(result.display.equals(result.original)).toBe(true);
+    expect(result.display.length).toBeLessThanOrEqual(DISPLAY_BYTES);
+  });
+  it("compresses a long, striped animation without sacrificing frames or resolution", async () => {
+    const width = 640, height = 480, frames = 50;
+    const pixels = Buffer.alloc(width * height * frames * 3);
+    for (let row = 0; row < height * frames; row++) {
+      const offset = Math.floor(row / height);
+      for (let x = 0; x < width; x++) pixels[(row * width + x) * 3 + (x + offset) % 3] = 255;
+    }
+    const input = await sharp(pixels, { raw: { width, height: height * frames, pageHeight: height, channels: 3 } })
+      .gif({ delay: 50 }).toBuffer();
+    const result = await validateMedia(input, "image");
+    for (const variant of [result.original, result.display]) {
+      expect(variant.length).toBeLessThan(input.length);
+      expect(await sharp(variant, { animated: true }).metadata()).toMatchObject({ pages: frames, width, pageHeight: height });
+    }
+  }, 15_000);
   it("resizes a dense animation again when the first display encode exceeds the byte budget", async () => {
     const side = 1000, pixels = Buffer.alloc(side * side * 2 * 3);
     let seed = 29;
     for (let i = 0; i < pixels.length; i += 3) {
       seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
-      pixels[i] = (seed >>> 31) * 255;
-      pixels[i + 1] = ((seed >>> 27) & 1) * 255;
-      pixels[i + 2] = ((seed >>> 22) & 1) * 255;
+      pixels[i] = (seed >>> 30) * 85;
+      pixels[i + 1] = ((seed >>> 26) & 3) * 85;
+      pixels[i + 2] = ((seed >>> 22) & 3) * 85;
     }
     const input = await sharp(pixels, { raw: { width: side, height: side * 2, pageHeight: side, channels: 3 } })
       .gif({ delay: [300, 500] }).toBuffer();
     const result = await validateMedia(input, "image");
-    expect(result).toMatchObject({ width: side, height: side, displayWidth: 500, displayHeight: 500 });
+    expect(result).toMatchObject({ width: side, height: side });
+    expect(result.displayWidth).toBeLessThan(side);
+    expect(result.displayHeight).toBe(result.displayWidth);
     expect(result.display.length).toBeLessThanOrEqual(DISPLAY_BYTES);
     expect(await sharp(result.display, { animated: true }).metadata()).toMatchObject({ pages: 2, delay: [300, 500] });
   }, 15_000);
