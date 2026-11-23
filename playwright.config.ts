@@ -24,6 +24,6 @@ export default defineConfig({
     { name: "firefox", use: { browserName: "firefox" }, testMatch: "core.spec.ts" },
     { name: "webkit", use: { browserName: "webkit" }, testMatch: "core.spec.ts" },
     { name: "mobile", use: { browserName: "chromium", viewport: { width: 375, height: 812 }, isMobile: true, hasTouch: true }, testMatch: "core.spec.ts" },
-    { name: "lifecycle", use: { browserName: "chromium" }, testMatch: ["lifecycle.spec.ts", "product-review.spec.ts", "media-review.spec.ts"] },
+    { name: "lifecycle", use: { browserName: "chromium" }, testMatch: ["lifecycle.spec.ts", "product-review.spec.ts", "media-review.spec.ts", "profile-embeds.spec.ts"] },
   ],
 });

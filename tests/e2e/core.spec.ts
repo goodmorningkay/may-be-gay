@@ -176,7 +176,9 @@ test("owners edit privately, upload real media, publish and remain isolated", as
     await page.getByLabel("Background image", { exact: true }).selectOption(image!);
     expect((await sibling.request.get(`${app}/api/media/${image}/content`)).status()).toBe(404);
     upload = page.waitForResponse(r => r.url().includes("/api/media?kind=audio") && r.request().method() === "POST");
-    await page.getByLabel("Upload MP3", { exact: false }).setInputFiles(files.audio);
+    // Exercise both lossless inputs alongside the existing MP3 upload path.
+    const track = prefix === "chromium" ? files.wav : prefix === "firefox" ? files.flac : files.audio;
+    await page.getByLabel("Upload audio", { exact: true }).setInputFiles(track);
     expect((await upload).status()).toBe(202);
     await fixture("drain"); await page.getByRole("button", { name: "Refresh media", exact: true }).click();
     await expect(page.getByLabel("Profile music", { exact: true }).locator("option")).toHaveCount(2);
@@ -185,6 +187,11 @@ test("owners edit privately, upload real media, publish and remain isolated", as
     await saved(page);
     const media = await (await context.request.get(`${app}/api/media`, { headers: { "x-editor-profile": (await state(context)).profileId } })).json();
     expect(media.assets.filter((a: { state: string }) => a.state === "ready")).toHaveLength(2);
+    const musicId = await page.getByLabel("Profile music", { exact: true }).inputValue();
+    const privateTrack = await context.request.get(`${app}/api/media/${musicId}/content`);
+    expect(privateTrack.status()).toBe(200);
+    expect(privateTrack.headers()["content-type"]).toBe("audio/mpeg");
+    expect((await privateTrack.body())[0]).toBe(0xff);
     expect(media.usage.chargedBytes).toBeGreaterThan(0); expect(media.usage.chargedBytes).toBeLessThan(media.quota.limitBytes);
     // The preview still uses real iframe viewport sizes and private media reads under CSP.
     const mobileView = page.getByRole("group", { name: "Editor view" });
@@ -256,6 +263,7 @@ test("owners edit privately, upload real media, publish and remain isolated", as
     await visitor.getByRole("button", { name: "Pause music", exact: true }).click();
     const audioURL = await audio.getAttribute("src");
     const range = await context.request.get(audioURL!, { headers: { range: "bytes=0-31" } }); expect(range.status()).toBe(206); expect((await range.body()).length).toBe(32);
+    expect(range.headers()["content-type"]).toBe("audio/mpeg");
     await expect.poll(async () => (await fixture("state", owner.email)).views).toBeGreaterThan(viewsBefore);
     const clicked = visitor.waitForResponse(r => r.url().endsWith("/api/metrics") && r.request().postDataJSON()?.event === "click");
     const opened = context.waitForEvent("page");

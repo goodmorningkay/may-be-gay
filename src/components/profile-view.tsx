@@ -3,10 +3,12 @@ import * as React from "react";
 
 import type { PublicMedia, PublicMediaMap } from "@/domain/media";
 import { getPublicDocument, getThemeColors, isCopyableLink, linkUrlSchema, type ProfileDocument } from "@/domain/profile";
+import { resolveProfileEmbed } from "@/domain/profile-embeds";
 
 import { ClickToEnter } from "./click-to-enter";
 import { CopyLink } from "./copy-link";
 import { MusicPlayer } from "./music-player";
+import { ProfileEmbed } from "./profile-embed";
 
 import "./brand.module.css";
 import styles from "./profile-view.module.css";
@@ -152,6 +154,13 @@ export function ProfileView({
             {music && profile.music && <MusicPlayer key={music.url} url={music.url} durationMs={music.durationMs} attribution={profile.music.attribution} deferPlay={Boolean(profile.clickToEnter)} />}
           </div>
         </div>
+
+        {profile.embeds?.length ? <ul className={styles.embeds} aria-label="Profile embeds">
+          {profile.embeds.map(embed => {
+            const source = resolveProfileEmbed(embed.url);
+            return source && <ProfileEmbed key={`${embed.id}:${source.src}`} title={embed.title} source={source} />;
+          })}
+        </ul> : null}
 
         <footer className={styles.footer}>
           <p className={styles.attribution}>

@@ -117,7 +117,7 @@ export async function createArchive(kind: "snapshot" | "journal", options: { url
               if (data.length !== object.bytes) fail("BACKUP_MEDIA_MISSING");
               // Validate retained bytes too: a truncated/corrupt source must not
               // become a newly authenticated, apparently healthy backup.
-              await validateMedia(data, object.contentType === "audio/mpeg" ? "audio" : "image");
+              await validateMedia(data, object.contentType === "audio/mpeg" ? "mp3" : "image");
               const file = path.join(work, "media.tmp"); await writePrivate(file, data);
               await saveFile(m, file, work, key, object.bytes, object); await rm(file);
             }

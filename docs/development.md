@@ -16,8 +16,9 @@ launch configuration remain separate. See [the current review record](non-launch
   and an OS/browser certificate import facility are needed for local HTTPS.
 - A PostgreSQL client is optional; the commands below use the client in the DB
   container. Host-side integration tests optionally use port **5432**.
-- Host-side media/worker tests require Linux, a C compiler/libc headers, FFmpeg
-  and `prlimit` (Debian/Ubuntu packages `gcc`, `libc6-dev`, `ffmpeg`, `util-linux`).
+- Host-side media/worker tests require Linux, a C compiler/libc headers, FFmpeg,
+  FLAC and `prlimit` (Debian/Ubuntu packages `gcc`, `libc6-dev`, `ffmpeg`, `flac`,
+  `util-linux`).
   Application/worker images include the compiled guardian, parser tools and Tini.
 
 The versioned package manifest and `package-lock.json` belong together. Use
