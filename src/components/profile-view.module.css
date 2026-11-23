@@ -33,7 +33,10 @@
   --profile-inset-bottom: env(safe-area-inset-bottom, 0px);
   --profile-inset-left: env(safe-area-inset-left, 0px);
   min-block-size: 100vh;
-  min-block-size: 100dvh;
+}
+
+@supports (min-block-size: 100dvh) {
+  .fullViewport { min-block-size: 100dvh; }
 }
 
 .profile *, .profile *::before, .profile *::after { box-sizing: border-box; }
