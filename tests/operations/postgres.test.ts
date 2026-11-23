@@ -6,6 +6,7 @@ import { hashPassword } from "better-auth/crypto";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { bootstrapTestDatabase } from "../db/harness";
+import { gifFixture } from "../media/gif-fixture";
 import { closeDatabase, getDatabase } from "@/server/db";
 import { account, auditEvents, dailyLinkMetrics, dailyProfileMetrics, draftMedia, jobs, media, profileDrafts, profileRevisions, profiles, reports, session, twoFactor, user, usernameClaims, verification } from "@/server/db/schema";
 import { mediaStorage } from "@/server/db/schema-media";
@@ -24,7 +25,7 @@ import { exportAccount } from "@/server/operations/export";
 import { operationsMaintenance } from "@/server/operations/maintenance";
 import { readRecoveryEvents, replayRecoveryEvents } from "@/server/operations/recovery";
 import { getMediaStorage, objectKeys, publicObjectKey } from "@/server/media/storage";
-import { processMediaDeletionJob } from "@/server/media/jobs";
+import { processMediaDeletionJob, processMediaJob } from "@/server/media/jobs";
 import { uploadMedia } from "@/server/media/service";
 const testUrl = process.env.OPERATIONS_TEST_DATABASE_URL;
 const origin = "https://app.may-be.localhost";
@@ -255,6 +256,27 @@ describe.skipIf(!testUrl)("operations on separate disposable PostgreSQL", () => 
     expect(files.get(`media/${asset.assetId}/original.webp`)).toEqual(asset.body); expect(files.get(`media/${asset.assetId}/display.webp`)).toEqual(asset.body);
     const foreignRes = await exportAccount(downloadRequest(b.cookie, b.id)); expect(untar(Buffer.from(await foreignRes.arrayBuffer())).has(`media/${asset.assetId}/original.webp`)).toBe(false);
     await expect(exportAccount(boundRequest(a, { ownerId: b.id }))).rejects.toMatchObject({ code: "EMPTY_EXPORT_BODY_REQUIRED" });
+  });
+  it("exports both archive paths for a GIF with one shared WebP derivative", async () => {
+    const a = await owner(), gif = await gifFixture(64, 48);
+    const asset = await uploadMedia(a.id, "image", new ReadableStream({ start(controller) { controller.enqueue(gif); controller.close(); } }));
+    const [pending] = await h.db.select().from(mediaStorage).where(eq(mediaStorage.assetId, asset.id));
+    await processMediaJob({ version: 1, action: "process", assetId: asset.id, token: pending.token });
+    const [ready] = await h.db.select().from(mediaStorage).where(eq(mediaStorage.assetId, asset.id));
+    expect(ready.original).not.toBeNull();
+    expect(ready.display).toEqual(ready.original);
+    const file = await getMediaStorage().get("private", ready.original!.key, ready.original!.bytes);
+
+    const response = await exportAccount(downloadRequest(a.cookie, a.id));
+    const archive = Buffer.from(await response.arrayBuffer());
+    const files = untar(archive);
+    const { media: [entry] } = JSON.parse(files.get("account.json")!.toString());
+    expect(entry).toMatchObject({
+      id: asset.id, originalPath: `media/${asset.id}/original.webp`, displayPath: `media/${asset.id}/display.webp`,
+    });
+    expect(files.get(entry.originalPath)).toEqual(file);
+    expect(files.get(entry.displayPath)).toEqual(file);
+    expect(archive.subarray(-1024)).toEqual(Buffer.alloc(1024));
   });
   it("rejects the account rendered in a stale tab before export bytes or deletion side effects", async () => {
     const a = await owner(), b = await owner();

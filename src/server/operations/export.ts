@@ -73,7 +73,10 @@ export async function exportAccount(request: Request): Promise<Response> {
           await lockOwner(tx, p.userId); await assertPrincipal(tx, p);
           const [valid] = await tx.select({ id: media.id }).from(media).innerJoin(mediaStorage, eq(mediaStorage.assetId, media.id)).where(and(eq(media.id, row.id), eq(media.ownerId, p.userId), eq(mediaStorage.ownerId, p.userId), eq(mediaStorage.token, row.token), eq(media.state, "ready"), eq(mediaStorage.state, "ready"), isNull(media.deletedAt)));
           if (!valid || object.bytes < 1 || object.bytes > 10 * 1024 ** 2) throw new Error("EXPORT_MEDIA_UNAVAILABLE");
-          const keys = objectKeys(row.id, row.token), expected = row.kind === "audio" ? keys.audio : variant === "original" ? keys.original : keys.display;
+          const keys = objectKeys(row.id, row.token);
+          const sharedDisplay = row.kind === "image" && variant === "display"
+            && object.key === keys.original && row.original?.key === keys.original && row.original.bytes === object.bytes;
+          const expected = row.kind === "audio" ? keys.audio : variant === "original" || sharedDisplay ? keys.original : keys.display;
           if (object.key !== expected) throw new Error("EXPORT_MEDIA_LOCATOR_INVALID");
           const body = await getMediaStorage().get("private", expected, object.bytes);
           if (body.length !== object.bytes) throw new Error("EXPORT_MEDIA_UNAVAILABLE");
