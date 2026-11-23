@@ -21,6 +21,7 @@ type ProfileViewProps = {
   media?: PublicMediaMap;
   supportHref?: string;
   fullViewport?: boolean;
+  livePreview?: boolean;
 };
 
 function platformOrigin(siteDomain: string): string {
@@ -75,6 +76,7 @@ export function ProfileView({
   media = {},
   supportHref,
   fullViewport = false,
+  livePreview = false,
 }: ProfileViewProps): React.JSX.Element {
   const profile = getPublicDocument(document);
   const origin = platformOrigin(siteDomain);
@@ -87,8 +89,10 @@ export function ProfileView({
   const music = resolveMedia(media, profile.music?.assetId, "audio");
   // Every interpolated value is a validated hex colour or a closed enum.
   // Omitting styles entirely preserves the original v1 preset rendering.
-  const colors = profile.theme.colors || profile.theme.background ? getThemeColors(profile.theme) : undefined;
-  const customStyle = colors ? Object.fromEntries(Object.entries(colors).map(([key, value]) => [`--${key}`, value])) : undefined;
+  const colors = getThemeColors(profile.theme);
+  const customStyle = profile.theme.colors || profile.theme.background
+    ? Object.fromEntries(Object.entries(colors).map(([key, value]) => [`--${key}`, value]))
+    : undefined;
   if (profile.theme.background?.kind === "gradient") {
     const gradient = profile.theme.background;
     Object.assign(customStyle!, { "--page-gradient": `linear-gradient(${({ down: "180deg", right: "90deg", diagonal: "135deg" })[gradient.direction]}, ${gradient.from}, ${gradient.to})` });
@@ -158,8 +162,8 @@ export function ProfileView({
         <div className={styles.belowCard}>
           {profile.embeds?.length ? <ul className={styles.embeds} aria-label="Profile embeds">
             {profile.embeds.map(embed => {
-              const source = resolveProfileEmbed(embed.url);
-              return source && <ProfileEmbed key={`${embed.id}:${source.src}`} title={embed.title} source={source} />;
+              const source = resolveProfileEmbed(embed.url, colors);
+              return source && <ProfileEmbed key={`${embed.id}:${source.href}`} title={embed.title} source={source} deferAutoLoad={livePreview} />;
             })}
           </ul> : null}
 

@@ -192,6 +192,8 @@
 .embedActions button { min-height: 44px; padding: 6px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--ink); font: inherit; cursor: pointer; }
 .embedActions a { display: inline-flex; align-items: center; min-height: 44px; color: var(--accent); text-underline-offset: .2em; }
 .embedFrame { display: block; width: 100%; border: 0; background: white; color-scheme: light; }
+/* Keep the frame's light color scheme so Snoozeds' default canvas stays transparent. */
+.lastFmFrame { background: var(--surface); }
 .footer { display: grid; justify-items: center; gap: 3px; margin-top: var(--profile-gap); padding-block: 14px 0; border-top: 1px solid var(--border); color: var(--muted); font-size: 13px; text-align: center; }
 .attribution { margin: 0; }
 .footer a { display: inline-flex; align-items: center; min-height: 30px; color: inherit; text-underline-offset: .2em; }

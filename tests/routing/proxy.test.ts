@@ -88,7 +88,7 @@ describe("request boundary and security headers", () => {
 
   it("allowlists only embed endpoints on public profiles and app pages", async () => {
     vi.stubEnv("SITE_DOMAIN", "may-be.gay");
-    const frameSources = "https://petracoding.github.io/neocities/widgets/lastfm https://open.spotify.com/embed/";
+    const frameSources = "https://lastfm-embed.vercel.app/api/currently-playing https://open.spotify.com/embed/";
     for (const [host, path, expected] of [
       ["alex.may-be.gay", "/", `frame-src ${frameSources}`],
       ["app.may-be.gay", "/editor", `frame-src ${frameSources}`],

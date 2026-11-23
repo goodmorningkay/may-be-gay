@@ -1,16 +1,25 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { account, app, editorSection, expect, publish, saved, state, test } from "./helpers";
 
-const lastFm = { title: "Recently played", url: "https://www.last.fm/es/user/Petra1999", frame: "https://petracoding.github.io/neocities/widgets/lastfm?username=Petra1999", provider: "Last.fm", loadName: "Load Last.fm embed via PetraPixel" };
+const lastFm = {
+  title: "Recently played",
+  url: "https://www.last.fm/es/user/Petra1999",
+  frame: "https://lastfm-embed.vercel.app/api/currently-playing?user=Petra1999&showTitle=false&bgColor=%23181026&textColor=%23f2eee5&urlColor=%23daabff&theme=may-be-gay-181026-f2eee5-daabff",
+  provider: "Last.fm",
+};
 const spotify = { title: "Favourite track", url: "https://open.spotify.com/intl-de/track/7GhIk7Il098yCjg4BQjzvb?si=share-id", frame: "https://open.spotify.com/embed/track/7GhIk7Il098yCjg4BQjzvb", provider: "Spotify", loadName: "Load Spotify embed" };
+const updatedLastFmFrame = lastFm.frame.replaceAll("181026", "301846");
+const lastFmFrameSelector = `iframe[title="${lastFm.title} (${lastFm.provider})"]`;
+const spotifyFrameSelector = `iframe[title="${spotify.title} (${spotify.provider})"]`;
 
 test("saves and publishes ordered sandboxed embeds in Stacked and Split layouts", async ({ page, context, expectedErrors }) => {
   expectedErrors.push(/^Console: Failed to load resource: the server responded with a status of 404.*\[https:\/\/app\.may-be\.localhost\/api\/profile\]$/);
   const requests: string[] = [];
   for (const embed of [lastFm, spotify]) {
-    await context.route(embed.frame, async route => {
+    const frameMatch = embed === lastFm ? "https://lastfm-embed.vercel.app/api/currently-playing?*" : embed.frame;
+    await context.route(frameMatch, async route => {
       expect(await route.request().headerValue("referer")).toBeNull();
-      requests.push(embed.frame);
+      requests.push(route.request().url());
       await route.fulfill({ contentType: "text/html", body: `<p>${embed.provider} fixture</p>` });
     });
   }
@@ -21,10 +30,14 @@ test("saves and publishes ordered sandboxed embeds in Stacked and Split layouts"
   }));
   const seeded = await context.request.put(`${app}/api/profile`, {
     headers: { origin: app, "x-editor-profile": initial.profileId },
-    data: { expectedVersion: initial.editVersion, document: { ...initial.document, links } },
+    data: {
+      expectedVersion: initial.editVersion,
+      document: { ...initial.document, links, theme: { ...initial.document.theme, preset: "midnight", colors: { surface: "#181026", accent: "#daabff" } } },
+    },
   });
   expect(seeded.status()).toBe(200);
   await page.reload();
+  const live = page.frameLocator('iframe[title^="Private local profile preview"]');
   await editorSection(page, "Embeds");
   for (const [index, embed] of [lastFm, spotify].entries()) {
     await page.getByRole("button", { name: "Add embed", exact: true }).click();
@@ -34,9 +47,16 @@ test("saves and publishes ordered sandboxed embeds in Stacked and Split layouts"
     await url.fill("https://example.com/unsupported");
     await expect(url).toHaveAttribute("aria-invalid", "true");
     await expect(page.getByRole("button", { name: "Publish page", exact: true })).toBeDisabled();
-    await url.fill(embed.url);
+    if (embed === lastFm) {
+      await url.fill("https://www.last.fm/es/user/");
+      await url.pressSequentially("Petra1999");
+    } else {
+      await url.fill(embed.url);
+    }
     await saved(page);
   }
+  await expect(live.frameLocator(lastFmFrameSelector).getByText("Last.fm fixture")).toBeVisible();
+  expect(requests).toEqual([lastFm.frame]);
   await page.getByRole("group", { name: "Embed 2", exact: true }).getByRole("button", { name: "Move up" }).click();
   await saved(page);
   expect((await state(context)).document.embeds).toEqual([
@@ -47,16 +67,27 @@ test("saves and publishes ordered sandboxed embeds in Stacked and Split layouts"
   await page.goto(`${app}/account`);
   await page.getByRole("link", { name: "Edit profile" }).click();
   await expect(page).toHaveURL(`${app}/editor`);
-  const live = page.frameLocator('iframe[title^="Private local profile preview"]');
   await expect(live.getByRole("list", { name: "Profile embeds" }).getByRole("heading")).toHaveText([spotify.title, lastFm.title]);
-  expect(requests).toEqual([]);
-  await live.getByRole("button", { name: `${lastFm.loadName}: ${lastFm.title}` }).click();
-  await expect(live.frameLocator(`iframe[title="${lastFm.title} (Last.fm)"]`).getByText("Last.fm fixture")).toBeVisible();
+  await expect(live.frameLocator(lastFmFrameSelector).getByText("Last.fm fixture")).toBeVisible();
+  await expect(live.locator(spotifyFrameSelector)).toHaveCount(0);
+  const requestsBeforePaletteEdit = requests.length;
+
+  await editorSection(page, "Appearance");
+  const surface = page.getByLabel("Pick surface colour", { exact: true });
+  for (let update = 0; update < 30; update += 1) {
+    await surface.fill(`#3018${update.toString(16).padStart(2, "0")}`);
+  }
+  await surface.fill("#301846");
+  await expect(live.locator(lastFmFrameSelector)).toHaveAttribute("src", updatedLastFmFrame);
+  await expect.poll(() => requests.slice(requestsBeforePaletteEdit)).toEqual([updatedLastFmFrame]);
+  await saved(page);
 
   const preview = await context.newPage();
   await preview.goto(`${app}/preview`);
+  await expect(preview.frameLocator(lastFmFrameSelector).getByText("Last.fm fixture")).toBeVisible();
+  await expect(preview.locator(spotifyFrameSelector)).toHaveCount(0);
   await preview.getByRole("button", { name: `${spotify.loadName}: ${spotify.title}` }).click();
-  await expect(preview.frameLocator(`iframe[title="${spotify.title} (Spotify)"]`).getByText("Spotify fixture")).toBeVisible();
+  await expect(preview.frameLocator(spotifyFrameSelector).getByText("Spotify fixture")).toBeVisible();
 
   await publish(page);
   const publicProfile = await context.newPage();
@@ -78,18 +109,22 @@ test("saves and publishes ordered sandboxed embeds in Stacked and Split layouts"
   expect(second.x).toBe(stackedProfile.x);
   expect(second.width).toBe(stackedProfile.width);
   expect(second.y).toBeGreaterThan(first.y + first.height);
-  expect(await publicProfile.locator("iframe").count()).toBe(0);
+  await expect(publicProfile.frameLocator(lastFmFrameSelector).getByText("Last.fm fixture")).toBeVisible();
+  await expect(publicProfile.locator(spotifyFrameSelector)).toHaveCount(0);
+  await publicProfile.getByRole("button", { name: `${spotify.loadName}: ${spotify.title}` }).click();
 
   for (const embed of [spotify, lastFm]) {
-    await publicProfile.getByRole("button", { name: `${embed.loadName}: ${embed.title}` }).click();
     const iframe = publicProfile.locator(`iframe[title="${embed.title} (${embed.provider})"]`);
-    await expect(iframe).toHaveAttribute("sandbox", embed === spotify ? "allow-scripts allow-same-origin" : "allow-scripts");
+    await expect(iframe).toHaveAttribute("sandbox", "allow-scripts allow-same-origin");
     await expect(iframe).toHaveAttribute("referrerpolicy", "no-referrer");
     const content = iframe.contentFrame().getByText(`${embed.provider} fixture`);
     await expect(content).toBeVisible();
-    expect(await content.evaluate(() => self.origin)).toBe(embed === spotify ? "https://open.spotify.com" : "null");
+    expect(await content.evaluate(() => self.origin)).toBe(new URL(embed.frame).origin);
   }
-  expect(requests).toEqual([lastFm.frame, spotify.frame, spotify.frame, lastFm.frame]);
+  const lastFmFrame = publicProfile.locator(lastFmFrameSelector);
+  await expect(lastFmFrame).toHaveAttribute("src", updatedLastFmFrame);
+  await expect(lastFmFrame).toHaveCSS("background-color", "rgb(48, 24, 70)");
+  await expect(lastFmFrame).toHaveCSS("color-scheme", "light");
 
   await editorSection(page, "Appearance");
   await page.getByLabel("Layout", { exact: true }).selectOption("split");
@@ -106,10 +141,11 @@ test("saves and publishes ordered sandboxed embeds in Stacked and Split layouts"
   expect(right.y).toBe(left.y);
 
   await publicProfile.setViewportSize({ width: 320, height: 700 });
-  const mobileFirst = (await items.nth(0).boundingBox())!;
-  const mobileSecond = (await items.nth(1).boundingBox())!;
-  expect(mobileSecond.x).toBe(mobileFirst.x);
-  expect(mobileSecond.y).toBeGreaterThan(mobileFirst.y + mobileFirst.height);
+  await expect.poll(() => items.evaluateAll(([first, second]) => {
+    const firstBox = first.getBoundingClientRect();
+    const secondBox = second.getBoundingClientRect();
+    return secondBox.x === firstBox.x && secondBox.top > firstBox.bottom;
+  })).toBe(true);
 
   await editorSection(page, "Embeds");
   await page.getByRole("group", { name: "Embed 1", exact: true }).getByRole("button", { name: "Remove embed" }).click();
