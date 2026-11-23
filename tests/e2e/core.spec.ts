@@ -1,4 +1,16 @@
+import type { Page } from "@playwright/test";
 import { test, expect, account, app, apex, fixture, password, saved, state, publish, observeContext, editorSection } from "./helpers";
+
+function profileCardBounds(page: Page) {
+  return page.locator("main header").locator("..").evaluate(async element => {
+    await document.fonts.ready;
+    const { top, bottom } = element.getBoundingClientRect();
+    return {
+      top, bottom, profileTop: element.closest("main")!.getBoundingClientRect().top,
+      width: innerWidth, height: innerHeight, scrollHeight: document.documentElement.scrollHeight,
+    };
+  });
+}
 
 test("homepage keeps the requested address through public signup and verification", async ({ page, expectedErrors }, info) => {
   expectedErrors.push(/^Console: Failed to load resource: the server responded with a status of 404.*\[https:\/\/app\.may-be\.localhost\/api\/profile\]$/);
@@ -57,6 +69,11 @@ test("homepage keeps the requested address through public signup and verificatio
   await page.getByRole("button", { name: "Try this look" }).click();
   await expect(page.locator("main")).toHaveAttribute("data-preset", "sunset");
   await expect(page.locator("main")).toHaveAttribute("data-layout", "split");
+  const sample = await profileCardBounds(page);
+  if (sample.width >= 768) {
+    expect(Math.abs(sample.top + sample.bottom - sample.profileTop - sample.height)).toBeLessThan(2);
+    expect(sample.scrollHeight).toBe(sample.height);
+  }
   await page.goto(`${apex}/privacy`);
   await expect(page.getByRole("navigation", { name: "Policies" }).getByRole("link", { name: "Privacy" })).toHaveAttribute("aria-current", "page");
   await expect(page.getByRole("heading", { name: "What is public" })).toBeVisible();
@@ -72,15 +89,6 @@ test("the draft preview centres a short Split card and lets a tall card scroll",
   expectedErrors.push(/^Console: Failed to load resource: the server responded with a status of 404.*\[https:\/\/app\.may-be\.localhost\/api\/profile\]$/);
   await account(page, `${info.project.name}-layout`);
   await Promise.all(page.frames().map(frame => frame.evaluate(async () => { await document.fonts.ready; })));
-  const card = page.locator("main header").locator("..");
-  const geometry = () => card.evaluate(async element => {
-    await document.fonts.ready;
-    const { top, bottom } = element.getBoundingClientRect();
-    return {
-      top, bottom, profileTop: element.closest("main")!.getBoundingClientRect().top,
-      width: innerWidth, height: innerHeight, scrollHeight: document.documentElement.scrollHeight,
-    };
-  });
   const current = await state(context);
   const saveLayout = async (expectedVersion: number, links = current.document.links) => {
     const response = await context.request.put(`${app}/api/profile`, {
@@ -92,13 +100,13 @@ test("the draft preview centres a short Split card and lets a tall card scroll",
   };
 
   await page.goto(`${app}/preview`);
-  const stacked = await geometry();
+  const stacked = await profileCardBounds(page);
   const topPadding = Math.min(78, Math.max(32, stacked.width * 0.04));
   expect(stacked.top - stacked.profileTop).toBeCloseTo(topPadding, 0);
 
   const splitVersion = await saveLayout(current.editVersion);
   await page.reload();
-  const split = await geometry();
+  const split = await profileCardBounds(page);
   if (split.width >= 768) {
     expect(Math.abs(split.top + split.bottom - split.profileTop - split.height)).toBeLessThan(2);
     expect(split.scrollHeight).toBe(split.height);
@@ -111,7 +119,7 @@ test("the draft preview centres a short Split card and lets a tall card scroll",
     id: crypto.randomUUID(), label: `Profile link ${index + 1}`, url: `${apex}/rules`, visible: true,
   })));
   await page.reload();
-  const tall = await geometry();
+  const tall = await profileCardBounds(page);
   expect(tall.top - tall.profileTop).toBeCloseTo(topPadding, 0);
   expect(tall.bottom).toBeGreaterThan(tall.height);
   const footerLink = page.getByRole("link", { name: "Report this page or get support" });

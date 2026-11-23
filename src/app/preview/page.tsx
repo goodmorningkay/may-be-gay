@@ -7,6 +7,7 @@ import { getSession, requireUser } from "@/server/auth/session";
 import { assertAppHost } from "@/server/http";
 import { getProfilePreview } from "@/server/profile-editor";
 import Link from "next/link";
+import profileStyles from "@/components/profile-view.module.css";
 import chrome from "@/components/site-chrome.module.css";
 import styles from "./preview.module.css";
 
@@ -20,7 +21,7 @@ export default async function Preview() {
   if (!await getSession(requestHeaders)) redirect("/sign-in?returnTo=%2Fpreview");
   const principal = await requireUser(requestHeaders);
   const profile = await getProfilePreview(principal);
-  return <div className={styles.preview}>
+  return <div className={profileStyles.profilePage}>
     <aside className={`${chrome.page} ${styles.notice}`} aria-label="Private preview">
       <div className={`${chrome.container} ${styles.banner}`}>
         <div className={styles.identity}>
