@@ -55,14 +55,16 @@ the session against the asset independently and does **not** require this header
   A complete frame walk rejects free bitrate, reserved fields, mixed sample
   rate/channel configurations, truncation, trailing data and overlong tracks.
   FFmpeg then fully decodes the stripped frames. WAV chunk bounds and sample
-  alignment are checked before decoding. FLAC frame CRCs and the declared sample
-  count, when available, are checked during processing.
+  alignment are checked before decoding, and FFmpeg is restricted to the
+  declared PCM decoder. The FLAC reference decoder verifies the complete
+  stream, including frame CRCs, the declared sample count and checksum when
+  present, and end-of-file alignment.
 - FFmpeg transcodes WAV and FLAC to metadata-free variable-bitrate MP3 at LAME
   quality 4 with a forced input demuxer, one thread, and only the `file` protocol.
-  The MP3 frame walk validates the result, including its duration. Encoder
-  padding can cause rejection near
-  the three-minute limit. The original lossless upload is trimmed from quarantine
-  once validation commits. Playback, publication, and backup continue to use MP3.
+  Supported sample rates and mono/stereo layouts are preserved. The MP3 frame
+  walk validates the result, including its duration. Encoder padding can cause
+  rejection near the three-minute limit. The lossless upload is trimmed from
+  quarantine once validation commits. Playback, publication, and backup use MP3.
 - Upload receive timeout: 60 seconds. Reservation expiry: 15 minutes.
 - One parser across **all processes** via
   `pg_try_advisory_xact_lock(740301,1)`, held for the entire parser operation.
@@ -73,7 +75,7 @@ the session against the asset independently and does **not** require this header
   128 MiB JS heap. Parent wall timeout is 20 seconds and kills the process group.
   Combined stdout/stderr are capped at 16 KiB and never returned/logged as raw
   errors. Sharp cache is disabled, libvips concurrency and worker pool are one.
-  FFmpeg additionally has a 512 MiB address-space limit, 10 CPU
+  Each audio tool additionally has a 512 MiB address-space limit, 10 CPU
   seconds, 32 descriptors and a 10-second wall timeout. Address-space bounds
   are not a promise of a particular RSS; the container needs an appropriate
   aggregate memory/CPU limit and monitored disk capacity as defense in depth.
@@ -84,7 +86,8 @@ Dependencies are pinned directly to `sharp@0.35.5` and
 `@aws-sdk/client-s3@3.1165.0`; package-lock pins transitives. Relevant official
 contracts: [sharp strict decode and pixel limits](https://sharp.pixelplumbing.com/api-constructor/),
 [AWS S3 SDK](https://docs.aws.amazon.com/AWSJavaScriptSDK/v3/latest/client/s3/),
-[FFmpeg input restrictions](https://ffmpeg.org/ffmpeg.html), and
+[FFmpeg input restrictions](https://ffmpeg.org/ffmpeg.html),
+[FLAC reference tool](https://xiph.org/flac/documentation_tools_flac.html), and
 [Cloudflare URL purge](https://developers.cloudflare.com/api/resources/cache/methods/purge/).
 
 ## Configuration and provider privileges
@@ -319,8 +322,9 @@ and real Cloudflare purge acceptance still require launch configuration.
    origins. Add the shared route's trusted app session/origin enforcement (the
    media APIs already consume the shared helpers). Keep public media off app and
    profile host routing. Verify renderer map integration and user-initiated audio.
-4. Install maintained distro **ffmpeg** and **util-linux** (`/usr/bin/ffmpeg`,
-   `/usr/bin/prlimit`) in application/worker images, with their runtime libraries.
+4. Install maintained distro **ffmpeg**, **flac** and **util-linux**
+   (`/usr/bin/ffmpeg`, `/usr/bin/flac`, `/usr/bin/prlimit`) in application/worker
+   images, with their runtime libraries.
    FFmpeg needs the `libmp3lame` encoder for WAV and FLAC conversion.
    **ffprobe is not required**. Keep distro security updates enabled. The existing
    Dockerfile includes these packages.
@@ -342,7 +346,7 @@ bounds, API authorization/CSRF, storage namespace/immutability, S3 command and
 failure contracts, Cloudflare purge and response headers/ranges. Fixtures are
 small programmatically generated colors and sine-wave audio, with no third-party
 media licenses or binary downloads. Native process tests need Linux FFmpeg,
-prlimit, a C compiler and the compiled guardian (`npm run native:build` before
+flac, prlimit, a C compiler and the compiled guardian (`npm run native:build` before
 direct Vitest calls), plus permission to execute subprocesses; the restricted tool sandbox can
 block native execution, so native acceptance must run in the actual environment.
 

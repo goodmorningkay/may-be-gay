@@ -142,7 +142,7 @@ Migration 0006 creates worker_heartbeats, worker_schedules and recovery_status,
 with runtime DML supplied by the infrastructure's default grants. Existing jobs
 constraints are unchanged. The Docker `worker` target packages tsx, worker and
 recovery sources, the media parser and sharp native modules, PostgreSQL 17.11
-pg_dump/pg_restore, FFmpeg and util-linux, and runs as the unprivileged node user.
+pg_dump/pg_restore, FFmpeg, FLAC and util-linux, and runs as the unprivileged node user.
 The fixture wrappers under infra/operations are for isolated tests only.
 
 Local Compose runs the worker with shared private media/mail volumes, a 1.5 GiB

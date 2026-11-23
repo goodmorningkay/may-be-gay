@@ -101,15 +101,27 @@ describe("media byte and parser bounds", () => {
         await expect(validateMedia(source.subarray(0, -1), "audio")).rejects.toMatchObject({ code: "MEDIA_INVALID" });
         await expect(validateMedia(Buffer.concat([source, Buffer.from("unexpected tail")]), "audio")).rejects.toMatchObject({ code: "MEDIA_INVALID" });
         if (format === "flac") {
+          // Zero padding at EOF must also be rejected.
+          await expect(validateMedia(Buffer.concat([source, Buffer.alloc(8)]), "audio")).rejects.toMatchObject({ code: "MEDIA_INVALID" });
+          await expect(validateMedia(Buffer.concat([source, Buffer.from([0xff])]), "audio")).rejects.toMatchObject({ code: "MEDIA_INVALID" });
           const inconsistent = Buffer.from(source);
           inconsistent.writeUInt32BE(inconsistent.readUInt32BE(22) + 4096, 22);
           await expect(validateMedia(inconsistent, "audio")).rejects.toMatchObject({ code: "MEDIA_INVALID" });
           inconsistent.fill(0, 22, 26);
+          inconsistent.fill(0, 26, 42); // The decoded PCM checksum is optional.
           expect((await validateMedia(inconsistent, "audio")).durationMs).toBe(result.durationMs);
         }
       } finally { await rm(dir, { recursive: true, force: true }); }
     }, 15_000,
   );
+  it("keeps the sample rate and channel count of 8 kHz mono FLAC", async () => {
+    const input = execFileSync("/usr/bin/ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "sine=r=8000:d=2", "-f", "flac", "-"]);
+    const { original } = await validateMedia(input, "audio");
+    expect(original.length).toBeLessThan(input.length);
+    expect((original[1] >> 3) & 3).toBe(0); // MPEG 2.5
+    expect((original[2] >> 2) & 3).toBe(2); // 8 kHz at MPEG 2.5
+    expect(original[3] >> 6).toBe(3); // Mono
+  }, 15_000);
   it.each([["wav", "pcm_s16le"], ["flac", "flac"]])("rejects overlong %s within the upload byte limit", async (format, codec) => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "media-fixture-"));
     try {

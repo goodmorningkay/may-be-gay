@@ -8,6 +8,10 @@ try { sharp = require("sharp"); sharp.cache(false); sharp.concurrency(1); }
 catch { process.exit(78); }
 const MAX_PIXELS = 16000000, MiB = 1048576;
 const MAX_AUDIO_SECONDS = 180;
+const PCM_DECODERS = {
+  1: { 8: "pcm_u8", 16: "pcm_s16le", 24: "pcm_s24le", 32: "pcm_s32le" },
+  3: { 32: "pcm_f32le", 64: "pcm_f64le" },
+};
 function fail() { throw new Error("invalid"); }
 function imageType(data) {
   if (data.subarray(0, 3).equals(Buffer.from([255, 216, 255]))) return "jpeg";
@@ -65,7 +69,7 @@ function mp3Frames(data) {
 }
 function inspectWav(data) {
   if (data.toString("latin1", 8, 12) !== "WAVE" || data.readUInt32LE(4) + 8 !== data.length) fail();
-  let pos = 12, rate, blockAlign, foundAudio = false;
+  let pos = 12, rate, blockAlign, decoder, foundAudio = false;
   while (pos + 8 <= data.length) {
     const type = data.toString("latin1", pos, pos + 4), size = data.readUInt32LE(pos + 4);
     const start = pos + 8;
@@ -84,14 +88,32 @@ function inspectWav(data) {
       rate = data.readUInt32LE(start + 4);
       blockAlign = data.readUInt16LE(start + 12);
       const bits = data.readUInt16LE(start + 14);
-      const validBits = format === 1 ? [8, 16, 24, 32] : format === 3 ? [32, 64] : [];
-      if (!rate || !channels || channels > 8 || !validBits.includes(bits) || blockAlign !== channels * bits / 8) fail();
+      decoder = PCM_DECODERS[format]?.[bits];
+      if (!rate || !channels || channels > 8 || !decoder || blockAlign !== channels * bits / 8) fail();
     } else if (type === "data") {
       if (!blockAlign || foundAudio || !size || size % blockAlign || size / blockAlign / rate > MAX_AUDIO_SECONDS) fail();
       foundAudio = true;
     }
   }
   if (pos !== data.length || !foundAudio) fail();
+  return decoder;
+}
+function verifyFlacFrameCrc(data, start) {
+  const table = new Uint16Array(256);
+  for (let byte = 0; byte < table.length; byte++) {
+    let crc = byte << 8;
+    for (let bit = 0; bit < 8; bit++) {
+      crc = (crc << 1) ^ (crc & 0x8000 ? 0x8005 : 0);
+    }
+    table[byte] = crc;
+  }
+  // A complete checksummed frame resets CRC-16 to zero. Check the full frame
+  // region because a decoder can reach EOF after a lone sync-prefix byte.
+  let crc = 0;
+  for (let pos = start; pos < data.length; pos++) {
+    crc = ((crc << 8) & 0xffff) ^ table[(crc >> 8) ^ data[pos]];
+  }
+  if (crc !== 0) fail();
 }
 function prepareFlac(data, input) {
   // Native FLAC starts with a single 34-byte STREAMINFO block. Keep it, skip
@@ -110,40 +132,46 @@ function prepareFlac(data, input) {
     if (end > data.length) fail();
   }
   if (end === data.length) fail();
+  verifyFlacFrameCrc(data, end);
   if (end !== 42) {
     data[4] = 128;
     fs.writeFileSync(input, Buffer.concat([data.subarray(0, 42), data.subarray(end)]));
   }
-  return samples;
 }
-function runFfmpeg(format, input, outputArgs, loglevel = "error") {
-  // Inherit the parser's group so its native guardian also reaps FFmpeg.
-  const run = spawnSync("/usr/bin/prlimit", ["--as=536870912", "--cpu=10", "--nofile=32", "--", "/usr/bin/ffmpeg",
-    "-nostdin", "-hide_banner", "-loglevel", loglevel, "-nostats", "-xerror", "-err_detect", format === "flac" ? "crccheck+explode" : "explode",
-    "-threads", "1", "-protocol_whitelist", "file", "-f", format, "-i", input, "-map", "0:a:0",
-    "-filter_threads", "1", "-threads", "1", ...outputArgs],
+function runAudioTool(command, args) {
+  // Inherit the parser's group so its native guardian also reaps these tools.
+  const run = spawnSync("/usr/bin/prlimit", ["--as=536870912", "--cpu=10", "--nofile=32", "--", command, ...args],
     { timeout: 10000, killSignal: "SIGKILL", maxBuffer: 16384, stdio: ["ignore", "pipe", "pipe"], env: { PATH: "/usr/bin:/bin", OMP_NUM_THREADS: "1" } });
   if (run.error?.code === "ENOENT" || run.status === 126 || run.status === 127 ||
       run.stderr?.includes("Unknown encoder 'libmp3lame'")) process.exit(78);
   if (run.error || run.status !== 0) fail();
-  return run.stderr.toString();
+}
+function runFfmpeg(format, input, outputArgs, decoder) {
+  runAudioTool("/usr/bin/ffmpeg", [
+    "-nostdin", "-hide_banner", "-loglevel", "error", "-nostats", "-xerror",
+    "-err_detect", format === "flac" ? "crccheck+explode" : "explode", "-threads", "1", "-protocol_whitelist", "file",
+    // The WAV demuxer can probe PCM-looking payloads for other codecs.
+    ...(decoder ? ["-codec_whitelist", decoder, "-c:a", decoder] : []),
+    "-f", format, "-i", input, "-map", "0:a:0", "-filter_threads", "1", "-threads", "1", ...outputArgs,
+  ]);
 }
 function processAudio(data, input, output, mp3Only) {
   const magic = data.toString("latin1", 0, 4);
   if (!mp3Only && (magic === "RIFF" || magic === "fLaC")) {
     const flac = magic === "fLaC";
-    let samples;
-    if (flac) samples = prepareFlac(data, input);
-    else inspectWav(data);
-    const stats = runFfmpeg(flac ? "flac" : "wav", input, [
-      ...(samples ? ["-af", "astats=measure_perchannel=none:measure_overall=Number_of_samples"] : []),
-      "-map_metadata", "-1", "-map_chapters", "-1", "-c:a", "libmp3lame", "-ar", "48000", "-ac", "2", "-q:a", "4",
+    const decoder = flac ? "flac" : inspectWav(data);
+    if (flac) prepareFlac(data, input);
+    runFfmpeg(flac ? "flac" : "wav", input, [
+      "-map_metadata", "-1", "-map_chapters", "-1", "-c:a", "libmp3lame", "-q:a", "4",
       // Stop beyond the allowed duration, then reject any oversized result.
       "-t", String(MAX_AUDIO_SECONDS + 1), "-id3v2_version", "0", "-f", "mp3", output,
-    ], samples ? "info" : "error");
-    // FFmpeg can reach EOF cleanly when whole final FLAC frames are missing.
-    if (samples && Number(stats.match(/Number of samples: (\d+)/)?.[1]) !== samples) fail();
-    return mp3Frames(fs.readFileSync(output)).durationMs;
+    ], decoder);
+    const track = mp3Frames(fs.readFileSync(output));
+    // FFmpeg can accept trailing bytes and whole missing frames. The reference
+    // decoder verifies the stream through EOF, including declared sample count
+    // and the PCM checksum when present.
+    if (flac) runAudioTool("/usr/bin/flac", ["--test", "--silent", "--", input]);
+    return track.durationMs;
   }
   const track = mp3Frames(data);
   fs.writeFileSync(output, track.data, { flag: "wx", mode: 0o600 });
