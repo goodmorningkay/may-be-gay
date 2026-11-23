@@ -136,7 +136,7 @@ export function MediaLibrary({ profileId, document: d, errors, disabled, onChang
       <div className={styles.inlineActions}>
         <label className={`${styles.button} ${styles.upload}`}>
           Upload image
-          <input type="file" accept="image/jpeg,image/png,image/webp" title="JPEG, PNG or WebP, up to 5 MiB and 16 megapixels"
+          <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" title="JPEG, PNG, WebP or GIF, up to 5 MiB"
             disabled={unavailable} onChange={e => { const file = e.target.files?.[0]; e.target.value = ""; void upload(file, "image"); }} />
         </label>
         <label className={`${styles.button} ${styles.upload}`}>

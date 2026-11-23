@@ -43,13 +43,15 @@ the session against the asset independently and does **not** require this header
 
 ## Limits and processing
 
-- Images: JPEG/PNG/WebP only, 5 MiB received, at most 16,000,000 decoded pixels.
-  Container inspection rejects APNG and animated WebP; sharp rejects multiple
-  pages and decoder warnings. SVG, HTML, GIF, PDF and other formats are rejected.
+- Images: GIF and static JPEG/PNG/WebP, up to 5 MiB received and 16,000,000
+  decoded pixels including all GIF frames. GIF uploads may have up to 120
+  frames. Container inspection rejects APNG and animated WebP uploads.
   Strict decoding produces a metadata-free WebP original (maximum 4096 pixels
-  per side, 5 MiB), and a display derivative (maximum 1600 pixels per side,
-  1 MiB). Public rendering uses the display derivative. Original upload bytes
-  are never published and are removed after validation commits.
+  per side, 5 MiB) and a display derivative (maximum 1600 pixels per side,
+  1 MiB). GIFs retain animation in both WebP variants. Animated display
+  derivatives start at up to 1280 pixels per side and are retried at a smaller
+  size if they exceed 1 MiB. Public rendering uses the display derivative.
+  Original upload bytes are removed after validation commits.
 - Audio: MP3 only, 10 MiB, at most 180 seconds. A complete frame walk rejects
   free bitrate, reserved fields, mixed sample rate/channel configurations,
   truncation, non-MP3 tails and overlong tracks. Bounded ID3v2.3/v2.4 and ID3v1
@@ -332,7 +334,7 @@ and real Cloudflare purge acceptance still require launch configuration.
 ## Verification
 
 `npx vitest run tests/media` covers stream byte/time bounds, generated strict
-image variants, metadata removal, APNG/WebP animation rejection, active/MIME
+image variants, metadata removal, GIF animation and bounds, APNG/WebP upload rejection, active/MIME
 spoofing, truncated/overlong MP3 data, full audio decode, parser wall/output
 bounds, API authorization/CSRF, storage namespace/immutability, S3 command and
 failure contracts, Cloudflare purge and response headers/ranges. Fixtures are

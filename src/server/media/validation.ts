@@ -5,7 +5,7 @@ import path from "node:path";
 import { cancelSupervised, spawnSupervised } from "../subprocess/supervised";
 import { z } from "zod";
 import { invalidMedia, MediaError } from "./errors";
-import { inputLimit, PARSER_TIMEOUT_MS, UPLOAD_TIMEOUT_MS, type MediaKind } from "./limits";
+import { DISPLAY_BYTES, IMAGE_BYTES, inputLimit, PARSER_TIMEOUT_MS, UPLOAD_TIMEOUT_MS, type MediaKind } from "./limits";
 
 type ScratchLocator = { assetId: string; token: string };
 function scratchPrefix(locator?: ScratchLocator) { return locator ? `may-be-media-${locator.assetId}-${locator.token}-` : "may-be-media-"; }
@@ -71,19 +71,35 @@ export async function runBoundedProcess(command: string, args: string[], timeout
     });
   });
 }
-// Caller MUST hold pg_try_advisory_xact_lock(740301, 1) for the whole invocation.
-// This low-level function is exported for isolated parser tests only.
-export async function validateMedia(data: Buffer, kind: MediaKind, locator?: ScratchLocator) {
-  if (!data.length || data.length > inputLimit(kind)) throw invalidMedia();
+// Callers hold the parser advisory lock for the whole invocation outside isolated tests.
+async function withParserInput<T>(data: Buffer, maxBytes: number, locator: ScratchLocator | undefined, consume: (input: string, dir: string) => Promise<T>) {
+  if (!data.length || data.length > maxBytes) throw invalidMedia();
   const dir = await mkdtemp(path.join(os.tmpdir(), scratchPrefix(locator)));
   try {
-    const input = path.join(dir, "input"), original = path.join(dir, "validated"), display = path.join(dir, "display");
+    const input = path.join(dir, "input");
     await writeFile(input, data, { mode: 0o600, flag: "wx" });
-    const result = resultSchema.parse(JSON.parse(await runBoundedProcess(process.execPath, ["--jitless", "--max-old-space-size=128", "--max-semi-space-size=8", path.join(process.cwd(), "src/server/media/parser.cjs"), kind, input, original, display])));
-    const full = await readFile(original), small = kind === "image" ? await readFile(display) : full;
-    if (!full.length || full.length > inputLimit(kind) || (kind === "image" && small.length > 1024 ** 2)) throw invalidMedia();
-    return { ...result, original: full, display: small };
+    return await consume(input, dir);
   } finally { await rm(dir, { recursive: true, force: true }); }
+}
+
+function runParser(...args: string[]) {
+  return runBoundedProcess(process.execPath, ["--jitless", "--max-old-space-size=128", "--max-semi-space-size=8", path.join(process.cwd(), "src/server/media/parser.cjs"), ...args]);
+}
+
+export async function validateMedia(data: Buffer, kind: MediaKind, locator?: ScratchLocator) {
+  return withParserInput(data, inputLimit(kind), locator, async (input, dir) => {
+    const original = path.join(dir, "validated"), display = path.join(dir, "display");
+    const result = resultSchema.parse(JSON.parse(await runParser(kind, input, original, display)));
+    const full = await readFile(original), small = kind === "image" ? await readFile(display) : full;
+    if (!full.length || full.length > inputLimit(kind) || (kind === "image" && (!small.length || small.length > DISPLAY_BYTES))) throw invalidMedia();
+    return { ...result, original: full, display: small };
+  });
+}
+
+/** Recovery-only validation for WebP derivatives already produced by the parser. */
+export async function validateStoredWebp(data: Buffer) {
+  const result = await withParserInput(data, IMAGE_BYTES, undefined, input => runParser("stored-webp", input));
+  if (result !== "ok") throw invalidMedia();
 }
 
 export async function deleteAssetScratch(assetId: string, token: string): Promise<void> {

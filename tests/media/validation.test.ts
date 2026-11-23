@@ -4,8 +4,9 @@ import os from "node:os";
 import path from "node:path";
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
-import { runBoundedProcess, validateMedia, withUploadFile } from "@/server/media/validation";
-import { IMAGE_BYTES, type MediaKind } from "@/server/media/limits";
+import { runBoundedProcess, validateMedia, validateStoredWebp, withUploadFile } from "@/server/media/validation";
+import { DISPLAY_BYTES, IMAGE_BYTES, type MediaKind } from "@/server/media/limits";
+import { gifFixture } from "./gif-fixture";
 
 const readUpload = (body: ReadableStream<Uint8Array>, kind: MediaKind, timeoutMs?: number) => withUploadFile(body,kind,file=>readFile(file),undefined,timeoutMs);
 const stream = (chunks: Uint8Array[]) => new ReadableStream<Uint8Array>({ start(controller) { for (const chunk of chunks) controller.enqueue(chunk); controller.close(); } });
@@ -34,7 +35,57 @@ describe("media byte and parser bounds", () => {
     expect(metadata.exif).toBeUndefined(); expect(metadata.icc).toBeUndefined(); expect(metadata.format).toBe("webp");
     expect(result.original.includes(Buffer.from("PRIVATE ARTIST"))).toBe(false);
     expect(result.display.length).toBeLessThan(1024 ** 2);
+    await expect(validateStoredWebp(result.display)).resolves.toBeUndefined();
   });
+  it("preserves GIF frames, timing and loop count in bounded WebP variants", async () => {
+    const input = await gifFixture(1500, 240, 2, 3);
+    const result = await validateMedia(input, "image");
+    expect(result).toMatchObject({ contentType: "image/webp", width: 1500, height: 240, displayWidth: 1280, displayHeight: 205 });
+    expect(result.display.length).toBeLessThan(input.length);
+    expect(result.display.length).toBeLessThanOrEqual(DISPLAY_BYTES);
+    for (const variant of [result.original, result.display]) {
+      const image = sharp(variant, { animated: true });
+      const metadata = await image.metadata();
+      expect(metadata).toMatchObject({ format: "webp", pages: 2, delay: [300, 500], loop: 3 });
+      const { data, info } = await image.raw().toBuffer({ resolveWithObject: true });
+      const next = metadata.width * metadata.pageHeight! * info.channels;
+      expect(data[0]).toBeGreaterThan(200);
+      expect(data[next + 2]).toBeGreaterThan(200);
+      await expect(validateStoredWebp(variant)).resolves.toBeUndefined();
+      await expect(validateMedia(variant, "image")).rejects.toMatchObject({ code: "MEDIA_INVALID" });
+    }
+    await expect(validateStoredWebp(result.display.subarray(0, -1))).rejects.toMatchObject({ code: "MEDIA_INVALID" });
+    await expect(validateStoredWebp(input)).rejects.toMatchObject({ code: "MEDIA_INVALID" });
+  }, 15_000);
+  it("resizes a dense animation again when the first display encode exceeds the byte budget", async () => {
+    const side = 1000, pixels = Buffer.alloc(side * side * 2 * 3);
+    let seed = 29;
+    for (let i = 0; i < pixels.length; i += 3) {
+      seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+      pixels[i] = (seed >>> 31) * 255;
+      pixels[i + 1] = ((seed >>> 27) & 1) * 255;
+      pixels[i + 2] = ((seed >>> 22) & 1) * 255;
+    }
+    const input = await sharp(pixels, { raw: { width: side, height: side * 2, pageHeight: side, channels: 3 } })
+      .gif({ delay: [300, 500] }).toBuffer();
+    const result = await validateMedia(input, "image");
+    expect(result).toMatchObject({ width: side, height: side, displayWidth: 500, displayHeight: 500 });
+    expect(result.display.length).toBeLessThanOrEqual(DISPLAY_BYTES);
+    expect(await sharp(result.display, { animated: true }).metadata()).toMatchObject({ pages: 2, delay: [300, 500] });
+  }, 15_000);
+  it("rejects GIF truncation, trailing data and excessive frames or total decoded pixels", async () => {
+    const gif = await gifFixture(32, 20);
+    const bigCanvas = Buffer.from(gif);
+    bigCanvas.writeUInt16LE(4096, 6);
+    bigCanvas.writeUInt16LE(4096, 8);
+    // 9 million pixels per frame is allowed. Two such frames exceed the total budget.
+    const largeAnimation = Buffer.from(gif);
+    largeAnimation.writeUInt16LE(3000, 6);
+    largeAnimation.writeUInt16LE(3000, 8);
+    for (const invalid of [gif.subarray(0, -1), Buffer.concat([gif, Buffer.from([0x3b])]), bigCanvas, largeAnimation, await gifFixture(2, 2, 121)]) {
+      await expect(validateMedia(invalid, "image")).rejects.toMatchObject({ code: "MEDIA_INVALID" });
+    }
+  }, 15_000);
   it.each(["<svg xmlns='http://www.w3.org/2000/svg'><script>alert(1)</script></svg>", "<!doctype html><img src=x onerror=alert(1)>", "%PDF-1.7", "GIF89a"])("rejects active/unsupported or spoofed data %s", async data => {
     await expect(validateMedia(Buffer.from(data), "image")).rejects.toMatchObject({ code: "MEDIA_INVALID" });
   });

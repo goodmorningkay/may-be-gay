@@ -6,9 +6,34 @@ const { spawnSync } = require("node:child_process");
 let sharp;
 try { sharp = require("sharp"); sharp.cache(false); sharp.concurrency(1); }
 catch { process.exit(78); }
-const MAX_PIXELS = 16000000, MiB = 1048576;
+const MAX_PIXELS = 16000000, MAX_FRAMES = 120, MiB = 1048576;
 function fail() { throw new Error("invalid"); }
-function imageType(data) {
+function checkGif(data) {
+  if (data.length < 14) fail();
+  const canvasPixels = data.readUInt16LE(6) * data.readUInt16LE(8);
+  if (canvasPixels === 0 || canvasPixels > MAX_PIXELS) fail();
+  const frameLimit = Math.min(MAX_FRAMES, Math.floor(MAX_PIXELS / canvasPixels));
+  const paletteBytes = flags => flags & 0x80 ? 3 * (2 << (flags & 7)) : 0;
+  let pos = 13 + paletteBytes(data[10]), frames = 0;
+  // Walk the container to enforce the frame limit and terminal trailer before
+  // handing the LZW data and frame composition to the decoder.
+  while (pos < data.length) {
+    const block = data[pos++];
+    if (block === 0x3b && pos === data.length && frames > 0) return;
+    if (block === 0x2c) {
+      if (pos + 9 >= data.length || ++frames > frameLimit) fail();
+      pos += 10 + paletteBytes(data[pos + 8]); // Descriptor, palette and LZW code size.
+    } else if (block === 0x21) {
+      pos++; // Extension label.
+    } else fail();
+    while (pos < data.length && data[pos] !== 0) pos += 1 + data[pos];
+    if (pos >= data.length) fail();
+    pos++; // Sub-block terminator.
+  }
+  fail();
+}
+function imageType(data, storedWebp) {
+  if (["GIF87a", "GIF89a"].includes(data.toString("latin1", 0, 6))) { checkGif(data); return "gif"; }
   if (data.subarray(0, 3).equals(Buffer.from([255, 216, 255]))) return "jpeg";
   if (data.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10]))) {
     let pos = 8, ended = false;
@@ -26,13 +51,40 @@ function imageType(data) {
     let pos = 12;
     while (pos + 8 <= data.length) {
       const type = data.toString("ascii", pos, pos + 4), len = data.readUInt32LE(pos + 4);
-      if (len > data.length - pos - 8 || ["ANIM", "ANMF"].includes(type) || (type === "VP8X" && (data[pos + 8] & 2))) fail();
+      if (len > data.length - pos - 8 || (!storedWebp && (["ANIM", "ANMF"].includes(type) || (type === "VP8X" && (data[pos + 8] & 2))))) fail();
       pos += 8 + len + (len % 2);
     }
     if (pos !== data.length) fail();
     return "webp";
   }
   fail();
+}
+async function imageInput(data, storedWebp) {
+  const format = imageType(data, storedWebp);
+  if (storedWebp && format !== "webp") fail();
+  const options = { failOn: "warning", limitInputPixels: MAX_PIXELS, sequentialRead: true, animated: format === "gif" || storedWebp, unlimited: false };
+  const meta = await sharp(data, options).metadata();
+  const frames = meta.pages ?? 1;
+  const frameHeight = meta.pageHeight ?? meta.height;
+  if (meta.format !== format || !meta.width || !frameHeight || frames > (options.animated ? MAX_FRAMES : 1) || meta.width * frameHeight * frames > MAX_PIXELS) fail();
+  return { options, animated: frames > 1, maxSide: Math.max(meta.width, frameHeight) };
+}
+function encodeWebp(data, options, side, quality) {
+  return sharp(data, options).rotate().resize({ width: side, height: side, fit: "inside", withoutEnlargement: true })
+    .webp({ quality, effort: 3 }).timeout({ seconds: 10 }).toBuffer({ resolveWithObject: true });
+}
+async function processImage(data, output, display) {
+  const { options, animated, maxSide } = await imageInput(data, false);
+  const full = await encodeWebp(data, options, 4096, 85);
+  if (full.data.length > 5 * MiB) fail();
+  // Encode the animated derivative from the GIF to avoid a second lossy pass.
+  let small = await encodeWebp(animated ? data : full.data, options, animated ? 1280 : 1600, animated ? 75 : 80);
+  if (animated && small.data.length > MiB) small = await encodeWebp(data, options, Math.min(640, Math.ceil(maxSide / 2)), 70);
+  if (small.data.length > MiB) fail();
+  fs.writeFileSync(output, full.data, { flag: "wx", mode: 0o600 });
+  fs.writeFileSync(display, small.data, { flag: "wx", mode: 0o600 });
+  process.stdout.write(JSON.stringify({ contentType: "image/webp", width: full.info.width, height: full.info.pageHeight ?? full.info.height,
+    displayWidth: small.info.width, displayHeight: small.info.pageHeight ?? small.info.height }));
 }
 function mp3Frames(data) {
   let start = 0, end = data.length;
@@ -65,19 +117,14 @@ function mp3Frames(data) {
 async function main() {
   const [kind, input, output, display] = process.argv.slice(2);
   const data = fs.readFileSync(input);
-  if (!data.length || data.length > (kind === "image" ? 5 : 10) * MiB) fail();
+  if (!data.length || data.length > (kind === "audio" ? 10 : 5) * MiB) fail();
   if (kind === "image") {
-    const format = imageType(data);
-    const options = { failOn: "warning", limitInputPixels: MAX_PIXELS, sequentialRead: true, animated: false, unlimited: false };
-    const meta = await sharp(data, options).metadata();
-    if (meta.format !== format || !meta.width || !meta.height || meta.width * meta.height > MAX_PIXELS || (meta.pages || 1) > 1) fail();
-    const full = await sharp(data, options).rotate().resize({ width: 4096, height: 4096, fit: "inside", withoutEnlargement: true }).webp({ quality: 85, effort: 3 }).timeout({ seconds: 10 }).toBuffer({ resolveWithObject: true });
-    if (full.data.length > 5 * MiB) fail();
-    const small = await sharp(full.data, options).resize({ width: 1600, height: 1600, fit: "inside", withoutEnlargement: true }).webp({ quality: 80, effort: 3 }).timeout({ seconds: 10 }).toBuffer({ resolveWithObject: true });
-    if (small.data.length > MiB) fail();
-    fs.writeFileSync(output, full.data, { flag: "wx", mode: 0o600 });
-    fs.writeFileSync(display, small.data, { flag: "wx", mode: 0o600 });
-    process.stdout.write(JSON.stringify({ contentType: "image/webp", width: full.info.width, height: full.info.height, displayWidth: small.info.width, displayHeight: small.info.height }));
+    await processImage(data, output, display);
+  } else if (kind === "stored-webp") {
+    const { options } = await imageInput(data, true);
+    // Recovery checks every frame for corruption without recompressing it.
+    await sharp(data, options).raw().timeout({ seconds: 10 }).toBuffer();
+    process.stdout.write("ok");
   } else if (kind === "audio") {
     const track = mp3Frames(data);
     // Strip tags before passing to the one allowed demuxer. No URL/protocol from
