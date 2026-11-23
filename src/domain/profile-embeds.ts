@@ -1,34 +1,42 @@
 import { z } from "zod";
-import type { getThemeColors } from "./profile";
+import { contrastRatio } from "./profile-colors";
 
 export const maxProfileEmbeds = 6;
 export const maxEmbedUrlLength = 2048;
 
 const lastFmWidget = "https://lastfm-embed.vercel.app/api/currently-playing";
 const spotifyPlayer = "https://open.spotify.com/embed/";
+const minimumTextContrast = 4.5;
 
 export const profileEmbedFrameSources = [lastFmWidget, spotifyPlayer];
 
-type EmbedColors = Pick<ReturnType<typeof getThemeColors>, "surface" | "ink" | "accent">;
+type EmbedColors = { surface: string; ink: string };
 
 export function resolveProfileEmbed(url: string, colors?: EmbedColors) {
   const lastFm = /^https:\/\/(?:www\.)?last\.fm\/(?:[a-z]{2}\/)?user\/([a-z][a-z0-9_-]{1,14})\/?$/i.exec(url);
   if (lastFm) {
     const username = lastFm[1];
     const params = new URLSearchParams({ user: username, showTitle: "false" });
+    let textColor: string | undefined;
     if (colors) {
-      const { surface, ink, accent } = colors;
+      const { surface, ink } = colors;
+      textColor = ink;
+      if (contrastRatio(ink, surface) < minimumTextContrast) {
+        textColor = contrastRatio("#000000", surface) > contrastRatio("#ffffff", surface) ? "#000000" : "#ffffff";
+      }
       params.set("bgColor", surface);
-      params.set("textColor", ink);
-      params.set("urlColor", accent);
+      params.set("textColor", textColor);
+      // Snoozeds uses urlColor for track metadata and the Now Playing label.
+      params.set("urlColor", textColor);
       // Snoozeds keys its HTML cache by username and theme name, without the color overrides.
-      params.set("theme", `may-be-gay-${[surface, ink, accent].map(color => color.slice(1).toLowerCase()).join("-")}`);
+      params.set("theme", `may-be-gay-${surface.slice(1).toLowerCase()}-${textColor.slice(1).toLowerCase()}`);
     }
     return {
       provider: "Last.fm" as const,
       src: `${lastFmWidget}?${params}`,
       href: `https://www.last.fm/user/${username}`,
       height: 176,
+      textColor,
     };
   }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defaultProfileDocument, getThemeColors, profileDocumentSchema } from "@/domain/profile";
+import { contrastRatio, defaultProfileDocument, getThemeColors, profileDocumentSchema } from "@/domain/profile";
 import { maxProfileEmbeds, resolveProfileEmbed } from "@/domain/profile-embeds";
 
 const lastFm = { id: "9bcefb7c-f0df-4ed5-a8f6-d93f77cb6d61", title: "Recently played", url: "https://www.last.fm/user/Petra1999" };
@@ -23,17 +23,29 @@ describe("profile embeds", () => {
     });
   });
 
-  it("sets the Last.fm palette and gives each palette its own provider cache key", () => {
+  it("uses the profile text color throughout Last.fm and keys the provider cache by the rendered colors", () => {
     const theme = { ...defaultProfileDocument.theme, preset: "midnight" as const };
     const preset = new URL(resolveProfileEmbed(lastFm.url, getThemeColors(theme))!.src).searchParams;
-    expect(Object.fromEntries(preset)).toMatchObject({ bgColor: "#232a38", textColor: "#f2eee5", urlColor: "#cad8ff" });
+    expect(Object.fromEntries(preset)).toMatchObject({ bgColor: "#232a38", textColor: "#f2eee5", urlColor: "#f2eee5" });
 
-    const customColors = { surface: "#181026", ink: "#F6ECFF", accent: "#DAABFF" };
+    const customColors = { surface: "#181026", ink: "#F6ECFF", accent: "#333333" };
     const custom = new URL(resolveProfileEmbed(lastFm.url, getThemeColors({ ...theme, colors: customColors }))!.src).searchParams;
-    expect(Object.fromEntries(custom)).toMatchObject({ bgColor: "#181026", textColor: "#F6ECFF", urlColor: "#DAABFF" });
-    expect(custom.get("theme")).toBe("may-be-gay-181026-f6ecff-daabff");
+    expect(Object.fromEntries(custom)).toMatchObject({ bgColor: "#181026", textColor: "#F6ECFF", urlColor: "#F6ECFF" });
+    expect(custom.get("theme")).toBe("may-be-gay-181026-f6ecff");
     expect(custom.get("theme")).not.toBe(preset.get("theme"));
     expect(resolveProfileEmbed(spotify.url, customColors)).toEqual(resolveProfileEmbed(spotify.url));
+  });
+
+  it.each([
+    { surface: "#181818", ink: "#333333", fallback: "#ffffff" },
+    { surface: "#f9f9f9", ink: "#eeeeee", fallback: "#000000" },
+    { surface: "#777777", ink: "#777777", fallback: "#000000" },
+  ])("keeps Last.fm readable when $ink on $surface is too faint", ({ surface, ink, fallback }) => {
+    const source = resolveProfileEmbed(lastFm.url, { surface, ink });
+    const params = new URL(source!.src).searchParams;
+    expect(Object.fromEntries(params)).toMatchObject({ bgColor: surface, textColor: fallback, urlColor: fallback });
+    expect(source).toMatchObject({ textColor: fallback });
+    expect(contrastRatio(fallback, surface)).toBeGreaterThanOrEqual(4.5);
   });
 
   it("resolves localized URLs to the same validated provider sources", () => {

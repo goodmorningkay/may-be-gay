@@ -1,5 +1,8 @@
 import { z } from "zod";
+import { contrastRatio, hexColorSchema } from "./profile-colors";
 import { maxProfileEmbeds, profileEmbedSchema } from "./profile-embeds";
+
+export { contrastRatio, hexColorSchema, relativeLuminance } from "./profile-colors";
 
 /** Validate navigation targets without rewriting them or contacting the host. */
 export const linkUrlSchema = z.string().max(2048).refine(
@@ -75,8 +78,6 @@ const linkSchema = z
       }
     }
   });
-
-export const hexColorSchema = z.string().regex(/^#[0-9a-f]{6}$/i, "Use a six-digit hex colour.");
 
 export const profileDocumentSchema = z
   .object({
@@ -216,20 +217,6 @@ export const profilePalettes = {
   sunset: { background: "#f9e4ce", surface: "#fff3e5", ink: "#4c2e25", muted: "#7d4f40", border: "#a87651", accent: "#a34420", focus: "#704017" },
   ocean: { background: "#e7f0f4", surface: "#f5fbff", ink: "#193c50", muted: "#486475", border: "#6e8e9f", accent: "#1c617f", focus: "#164a9f" },
 } as const;
-
-export function relativeLuminance(color: string): number {
-  hexColorSchema.parse(color);
-  const [r, g, b] = [1, 3, 5].map((offset) => {
-    const c = parseInt(color.slice(offset, offset + 2), 16) / 255;
-    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-  });
-  return r * 0.2126 + g * 0.7152 + b * 0.0722;
-}
-
-export function contrastRatio(first: string, second: string): number {
-  const a = relativeLuminance(first), b = relativeLuminance(second);
-  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
-}
 
 export function getThemeColors(theme: ProfileDocument["theme"]) {
   const base = profilePalettes[theme.preset];

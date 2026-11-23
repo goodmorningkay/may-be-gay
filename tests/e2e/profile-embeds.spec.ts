@@ -4,7 +4,7 @@ import { account, app, editorSection, expect, publish, saved, state, test } from
 const lastFm = {
   title: "Recently played",
   url: "https://www.last.fm/es/user/Petra1999",
-  frame: "https://lastfm-embed.vercel.app/api/currently-playing?user=Petra1999&showTitle=false&bgColor=%23181026&textColor=%23f2eee5&urlColor=%23daabff&theme=may-be-gay-181026-f2eee5-daabff",
+  frame: "https://lastfm-embed.vercel.app/api/currently-playing?user=Petra1999&showTitle=false&bgColor=%23181026&textColor=%23f2eee5&urlColor=%23f2eee5&theme=may-be-gay-181026-f2eee5",
   provider: "Last.fm",
 };
 const spotify = { title: "Favourite track", url: "https://open.spotify.com/intl-de/track/7GhIk7Il098yCjg4BQjzvb?si=share-id", frame: "https://open.spotify.com/embed/track/7GhIk7Il098yCjg4BQjzvb", provider: "Spotify", loadName: "Load Spotify embed" };
@@ -32,7 +32,7 @@ test("saves and publishes ordered sandboxed embeds in Stacked and Split layouts"
     headers: { origin: app, "x-editor-profile": initial.profileId },
     data: {
       expectedVersion: initial.editVersion,
-      document: { ...initial.document, links, theme: { ...initial.document.theme, preset: "midnight", colors: { surface: "#181026", accent: "#daabff" } } },
+      document: { ...initial.document, links, theme: { ...initial.document.theme, preset: "midnight", colors: { surface: "#181026", accent: "#333333" } } },
     },
   });
   expect(seeded.status()).toBe(200);
@@ -123,6 +123,7 @@ test("saves and publishes ordered sandboxed embeds in Stacked and Split layouts"
   }
   const lastFmFrame = publicProfile.locator(lastFmFrameSelector);
   await expect(lastFmFrame).toHaveAttribute("src", updatedLastFmFrame);
+  await expect(cards.getByRole("link", { name: "Open on Last.fm" })).toHaveCSS("color", "rgb(242, 238, 229)");
   await expect(lastFmFrame).toHaveCSS("background-color", "rgb(48, 24, 70)");
   await expect(lastFmFrame).toHaveCSS("color-scheme", "light");
 
