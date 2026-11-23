@@ -20,7 +20,7 @@ export function resolveProfileEmbed(url: string) {
     };
   }
 
-  const spotify = /^https:\/\/open\.spotify\.com\/(?:intl-[a-z]{2}\/)?(?:embed\/)?(track|album|playlist)\/([a-zA-Z0-9]{22})\/?(?:\?[a-zA-Z0-9_=&%-]*)?$/.exec(url);
+  const spotify = /^https:\/\/open\.spotify\.com\/(?:intl-[a-z]{2}\/)?(?:embed\/)?(track|album|playlist)\/([a-zA-Z0-9]{22})\/?(?:\?[a-zA-Z0-9_=&%:-]*)?$/.exec(url);
   if (spotify) {
     const [, kind, id] = spotify;
     return {

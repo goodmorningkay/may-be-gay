@@ -30,6 +30,16 @@ describe("profile embeds", () => {
     expect(resolveProfileEmbed(localizedSpotify)).toEqual(resolveProfileEmbed(spotify.url));
   });
 
+  it("accepts Spotify album links that highlight a track", () => {
+    const albumUrl = "https://open.spotify.com/album/4lhjMs1eMIJdU2QAC6sYwv";
+    const highlighted = `${albumUrl}?highlight=spotify:track:7GhIk7Il098yCjg4BQjzvb`;
+    expect(resolveProfileEmbed(highlighted)).toMatchObject({
+      src: "https://open.spotify.com/embed/album/4lhjMs1eMIJdU2QAC6sYwv",
+      href: albumUrl,
+    });
+    expect(resolveProfileEmbed(highlighted)).toEqual(resolveProfileEmbed(albumUrl));
+  });
+
   it.each([
     "<iframe src=\"https://www.last.fm/user/Petra1999\"></iframe>",
     "javascript:alert(1)",

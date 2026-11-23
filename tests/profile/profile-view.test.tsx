@@ -66,6 +66,7 @@ describe("public profile renderer", () => {
     expect(html.indexOf('aria-label="Profile embeds"')).toBeGreaterThan(html.indexOf('aria-label="Profile links"'));
     expect(html).toContain("&lt;b&gt;Recent tracks&lt;/b&gt;");
     expect(html).toContain('href="https://www.last.fm/user/Petra1999"');
+    expect(html).not.toContain("Load Last.fm embed");
     expect(html).not.toContain("<iframe");
   });
 
