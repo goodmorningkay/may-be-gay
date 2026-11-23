@@ -7,6 +7,7 @@ test("homepage keeps the requested address through public signup and verificatio
 
   await page.goto(apex);
   await expect(page.locator("html")).toHaveCSS("background-color", "rgb(18, 18, 18)");
+  await expect(page.locator('meta[name="viewport"]')).not.toHaveAttribute("content", /viewport-fit=cover/);
   await expect(page.getByRole("link", { name: "Log in" })).toHaveAttribute("href", `${app}/sign-in`);
   await page.getByRole("textbox", { name: "Username" }).fill(username);
   await page.getByRole("button", { name: "Claim address" }).click();
@@ -199,6 +200,30 @@ test("owners edit privately, upload real media, publish and remain isolated", as
     await expect(visitor.getByRole("link", { name: /^Visible edited link/ })).toBeVisible();
     const html = await visitor.content(); expect(html).not.toContain(owner.email); expect(html).not.toContain("Private auth"); expect(html).not.toContain("private-draft=1"); expect(html).toContain("public-contact@example.invalid");
     await expect.poll(() => visitor.locator("img").first().evaluate((el: HTMLImageElement) => el.naturalWidth)).toBeGreaterThan(0);
+    if (info.project.name === "mobile") {
+      const originalViewport = visitor.viewportSize()!;
+      const viewport = { width: 430, height: 932 };
+      await visitor.setViewportSize(viewport);
+      const cdp = await context.newCDPSession(visitor);
+      try {
+        await cdp.send("Emulation.setSmallViewportHeightDifferenceOverride", { difference: 80 });
+        await cdp.send("Emulation.setSafeAreaInsetsOverride", { insets: { top: 59, right: 24, bottom: 34, left: 24 } });
+        await expect(visitor.locator('meta[name="viewport"]')).toHaveAttribute("content", /viewport-fit=cover/);
+        const profile = visitor.locator("main");
+        await expect(profile).toHaveCSS("padding-top", "91px");
+        await expect(profile).toHaveCSS("padding-bottom", "76px");
+        await expect(profile).toHaveCSS("padding-left", "44px");
+        await expect(profile).toHaveCSS("padding-right", "44px");
+        await expect(profile).toHaveCSS("min-block-size", `${viewport.height}px`);
+        const background = profile.locator('img[aria-hidden="true"]');
+        await expect.poll(() => background.boundingBox()).toEqual({ x: 0, y: 0, ...viewport });
+      } finally {
+        await cdp.send("Emulation.setSmallViewportHeightDifferenceOverride", { difference: 0 });
+        await cdp.send("Emulation.setSafeAreaInsetsOverride", { insets: {} });
+        await cdp.detach();
+        await visitor.setViewportSize(originalViewport);
+      }
+    }
     const audio = visitor.locator("audio");
     await expect(audio).toHaveAttribute("preload", "none"); await expect(audio).toHaveAttribute("controls", "");
     await expect(visitor.getByLabel("Volume", { exact: true })).toHaveValue("0.2");

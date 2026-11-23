@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { notFound, redirect } from "next/navigation";
 import { Homepage } from "@/components/homepage/homepage";
 import { ProfileView } from "@/components/profile-view";
@@ -18,6 +18,11 @@ async function readPage() {
   return page;
 }
 
+export async function generateViewport(): Promise<Viewport> {
+  const { profile } = await readSitePage();
+  return profile ? { viewportFit: "cover" } : {};
+}
+
 export async function generateMetadata(): Promise<Metadata> {
   const { domain, host, profile } = await readPage();
   if (!profile) return { title: host.kind === "app" ? "Your editor" : "A link-in-bio page you can make yours" };
@@ -35,7 +40,7 @@ export async function generateMetadata(): Promise<Metadata> {
 export default async function Home({ searchParams }: { searchParams: Promise<{ username?: string | string[] }> }) {
   const { domain, host, profile } = await readPage();
   if (profile) return <>
-    <ProfileView document={profile.document} username={profile.username} siteDomain={domain} media={profile.media} supportHref={reportUrl(profile.username, {}, domain)} />
+    <ProfileView document={profile.document} username={profile.username} siteDomain={domain} media={profile.media} supportHref={reportUrl(profile.username, {}, domain)} fullViewport />
     <PublicAnalytics username={profile.username} domain={domain} />
   </>;
   if (host.kind === "app") redirect("/editor");
