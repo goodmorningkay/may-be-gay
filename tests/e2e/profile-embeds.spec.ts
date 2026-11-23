@@ -6,17 +6,19 @@ const lastFm = {
   url: "https://www.last.fm/es/user/Petra1999",
   frame: "https://lastfm-embed.vercel.app/api/currently-playing?user=Petra1999&showTitle=false&bgColor=%23181026&textColor=%23f2eee5&urlColor=%23daabff&theme=may-be-gay-181026-f2eee5-daabff",
   provider: "Last.fm",
-  loadName: "Load Last.fm embed",
+  loadName: "Load Last.fm embed via Snoozeds",
 };
 const spotify = { title: "Favourite track", url: "https://open.spotify.com/intl-de/track/7GhIk7Il098yCjg4BQjzvb?si=share-id", frame: "https://open.spotify.com/embed/track/7GhIk7Il098yCjg4BQjzvb", provider: "Spotify", loadName: "Load Spotify embed" };
+const updatedLastFmFrame = lastFm.frame.replaceAll("181026", "301846");
 
 test("saves and publishes ordered sandboxed embeds in Stacked and Split layouts", async ({ page, context, expectedErrors }) => {
   expectedErrors.push(/^Console: Failed to load resource: the server responded with a status of 404.*\[https:\/\/app\.may-be\.localhost\/api\/profile\]$/);
   const requests: string[] = [];
   for (const embed of [lastFm, spotify]) {
-    await context.route(embed.frame, async route => {
+    const frameMatch = embed === lastFm ? "https://lastfm-embed.vercel.app/api/currently-playing?*" : embed.frame;
+    await context.route(frameMatch, async route => {
       expect(await route.request().headerValue("referer")).toBeNull();
-      requests.push(embed.frame);
+      requests.push(route.request().url());
       await route.fulfill({ contentType: "text/html", body: `<p>${embed.provider} fixture</p>` });
     });
   }
@@ -62,6 +64,16 @@ test("saves and publishes ordered sandboxed embeds in Stacked and Split layouts"
   await live.getByRole("button", { name: `${lastFm.loadName}: ${lastFm.title}` }).click();
   await expect(live.frameLocator(`iframe[title="${lastFm.title} (Last.fm)"]`).getByText("Last.fm fixture")).toBeVisible();
 
+  await editorSection(page, "Appearance");
+  const surface = page.getByLabel("Pick surface colour", { exact: true });
+  for (let update = 0; update < 30; update += 1) {
+    await surface.fill(`#3018${update.toString(16).padStart(2, "0")}`);
+  }
+  await surface.fill("#301846");
+  await expect(live.locator(`iframe[title="${lastFm.title} (Last.fm)"]`)).toHaveAttribute("src", updatedLastFmFrame);
+  await expect.poll(() => requests).toEqual([lastFm.frame, updatedLastFmFrame]);
+  await saved(page);
+
   const preview = await context.newPage();
   await preview.goto(`${app}/preview`);
   await preview.getByRole("button", { name: `${spotify.loadName}: ${spotify.title}` }).click();
@@ -99,9 +111,10 @@ test("saves and publishes ordered sandboxed embeds in Stacked and Split layouts"
     expect(await content.evaluate(() => self.origin)).toBe(new URL(embed.frame).origin);
   }
   const lastFmFrame = publicProfile.locator(`iframe[title="${lastFm.title} (${lastFm.provider})"]`);
-  await expect(lastFmFrame).toHaveCSS("background-color", "rgb(24, 16, 38)");
+  await expect(lastFmFrame).toHaveAttribute("src", updatedLastFmFrame);
+  await expect(lastFmFrame).toHaveCSS("background-color", "rgb(48, 24, 70)");
   await expect(lastFmFrame).toHaveCSS("color-scheme", "light");
-  expect(requests).toEqual([lastFm.frame, spotify.frame, spotify.frame, lastFm.frame]);
+  expect(requests).toEqual([lastFm.frame, updatedLastFmFrame, spotify.frame, spotify.frame, updatedLastFmFrame]);
 
   await editorSection(page, "Appearance");
   await page.getByLabel("Layout", { exact: true }).selectOption("split");
