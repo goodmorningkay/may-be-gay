@@ -108,8 +108,8 @@ only from ready owned assets. Every URL in that private media map is the
 same-origin authenticated `/api/media/[id]/content` path.
 
 `LivePreview` portals the renderer into an empty same-origin `srcdoc` iframe,
-copying the application's existing styles. The renderer loads the supported
-third-party frames only when the editor user chooses to load an embed. Its real viewport
+copying the application's existing styles. Last.fm widgets load automatically once
+the URL and palette settle. Spotify players load when the editor user requests them. The real viewport
 is 375 px or 960 px, so the renderer's responsive media queries work accurately
 instead of responding to the whole editor window. Its scroll region and title
 are accessible. A stylesheet observer is disconnected on unmount. Renderer links

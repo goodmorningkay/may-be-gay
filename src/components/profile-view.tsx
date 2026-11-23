@@ -21,6 +21,7 @@ type ProfileViewProps = {
   media?: PublicMediaMap;
   supportHref?: string;
   fullViewport?: boolean;
+  livePreview?: boolean;
 };
 
 function platformOrigin(siteDomain: string): string {
@@ -75,6 +76,7 @@ export function ProfileView({
   media = {},
   supportHref,
   fullViewport = false,
+  livePreview = false,
 }: ProfileViewProps): React.JSX.Element {
   const profile = getPublicDocument(document);
   const origin = platformOrigin(siteDomain);
@@ -161,7 +163,7 @@ export function ProfileView({
           {profile.embeds?.length ? <ul className={styles.embeds} aria-label="Profile embeds">
             {profile.embeds.map(embed => {
               const source = resolveProfileEmbed(embed.url, colors);
-              return source && <ProfileEmbed key={`${embed.id}:${source.href}`} title={embed.title} source={source} />;
+              return source && <ProfileEmbed key={`${embed.id}:${source.href}`} title={embed.title} source={source} deferAutoLoad={livePreview} />;
             })}
           </ul> : null}
 

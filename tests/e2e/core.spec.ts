@@ -128,11 +128,14 @@ test("the draft preview centres a short Split card and lets a tall card scroll",
     expect(Math.abs(split.top + split.bottom - split.profileTop - split.height)).toBeLessThan(2);
     expect(split.scrollHeight).toBe(split.height);
     await expect(page.getByRole("link", { name: "Report this page or get support" })).toBeInViewport();
+    await page.route("https://lastfm-embed.vercel.app/api/currently-playing?*", route =>
+      route.fulfill({ contentType: "text/html", body: "<p>Last.fm fixture</p>" }));
     splitVersion = await saveLayout(splitVersion, current.document.links, [{
       id: crypto.randomUUID(), title: "Recent tracks", url: "https://www.last.fm/user/Petra1999",
     }]);
     const viewport = page.viewportSize()!;
-    await page.setViewportSize({ ...viewport, height: 1000 });
+    // Leave room below the centered card for the automatically loaded widget.
+    await page.setViewportSize({ ...viewport, height: 1250 });
     await page.reload();
     await expect(page.getByRole("heading", { name: "Recent tracks" })).toBeInViewport();
     const withEmbed = await profileCardBounds(page);

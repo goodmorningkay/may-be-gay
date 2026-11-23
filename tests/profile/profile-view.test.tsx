@@ -59,15 +59,19 @@ describe("public profile renderer", () => {
     expect(html.match(/<li>/g)).toHaveLength(2);
   });
 
-  it("renders escaped embed titles and fallback links below the profile links before loading a frame", () => {
+  it("renders the automatic Last.fm frame and leaves Spotify unloaded before hydration", () => {
     const profile = createExampleProfile();
-    profile.embeds = [{ id: "9bcefb7c-f0df-4ed5-a8f6-d93f77cb6d61", title: "<b>Recent tracks</b>", url: "https://www.last.fm/user/Petra1999" }];
+    profile.embeds = [
+      { id: "9bcefb7c-f0df-4ed5-a8f6-d93f77cb6d61", title: "<b>Recent tracks</b>", url: "https://www.last.fm/user/Petra1999" },
+      { id: "fb21f232-b964-447c-b873-35d844735e0d", title: "Favourite track", url: "https://open.spotify.com/track/7GhIk7Il098yCjg4BQjzvb" },
+    ];
     const html = render(profile);
     expect(html.indexOf('aria-label="Profile embeds"')).toBeGreaterThan(html.indexOf('aria-label="Profile links"'));
     expect(html).toContain("&lt;b&gt;Recent tracks&lt;/b&gt;");
     expect(html).toContain('href="https://www.last.fm/user/Petra1999"');
-    expect(html).not.toContain("Load Last.fm embed");
-    expect(html).not.toContain("<iframe");
+    expect(html).toContain('src="https://lastfm-embed.vercel.app/api/currently-playing?user=Petra1999&amp;');
+    expect(html).toContain('title="&lt;b&gt;Recent tracks&lt;/b&gt; (Last.fm)"');
+    expect(html.match(/<iframe\b/g)).toHaveLength(1);
   });
 
   it("rejects invalid runtime data even if a caller bypasses TypeScript", () => {
