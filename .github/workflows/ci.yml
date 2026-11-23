@@ -49,7 +49,7 @@ jobs:
       - name: Install locked dependencies
         run: npm ci --no-fund --no-audit
       - name: Install bounded media parser tools
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg util-linux gcc libc6-dev
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg flac util-linux gcc libc6-dev
       - name: Bootstrap separate database roles
         run: |
           docker exec -i -e MIGRATION_DATABASE_PASSWORD -e APP_DATABASE_PASSWORD "${{ job.services.postgres.id }}" psql -X -U postgres -d may_be_gay -v ON_ERROR_STOP=1 < infra/postgres/bootstrap.sql
@@ -99,7 +99,7 @@ jobs:
           node-version: 22.19.0
           cache: npm
       - run: npm ci --no-fund --no-audit
-      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg util-linux gcc libc6-dev
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg flac util-linux gcc libc6-dev
       - run: npm run native:build
       - name: Start isolated PostgreSQL 17 recovery fixture
         run: |
@@ -112,8 +112,29 @@ jobs:
           docker build --target worker -t may-be-gay-worker:ci .
           docker run --rm --network none may-be-gay-worker:ci pg_dump --version
           docker run --rm --network none may-be-gay-worker:ci pg_restore --version
-          docker run --rm --network none may-be-gay-worker:ci node -e 'if (process.getuid() === 0) process.exit(1); require("sharp"); require("node:child_process").execFileSync("prlimit", ["--version"]); require("node:child_process").execFileSync("ffmpeg", ["-version"]);'
+          docker run --rm --network none may-be-gay-worker:ci node -e 'if (process.getuid() === 0) process.exit(1); require("sharp"); require("node:child_process").execFileSync("prlimit", ["--version"]); require("node:child_process").execFileSync("ffmpeg", ["-version"]); require("node:child_process").execFileSync("flac", ["--version"]);'
           docker run --rm --network none -e NATIVE_PARSER_LOCK_FILE=/app/var/native/parser.lock may-be-gay-worker:ci node --conditions=react-server --import tsx -e 'const sharp = require("sharp"); const { validateMedia } = require("./src/server/media/validation.ts"); (async () => { const bytes = await sharp({create:{width:2,height:2,channels:3,background:"red"}}).png().toBuffer(); const result = await validateMedia(bytes,"image"); if (result.width !== 2) process.exit(1); })();'
+          docker run --rm --network none -i -e NATIVE_PARSER_LOCK_FILE=/app/var/native/parser.lock may-be-gay-worker:ci node --conditions=react-server --import tsx <<'NODE'
+          const assert = require("node:assert/strict");
+          const { execFileSync } = require("node:child_process");
+          const { mkdtempSync, readFileSync, rmSync } = require("node:fs");
+          const { validateMedia } = require("./src/server/media/validation.ts");
+          (async () => {
+            const dir = mkdtempSync("/tmp/media-worker-");
+            try {
+              const wav = dir + "/tone.wav", flac = dir + "/tone.flac";
+              execFileSync("ffmpeg", ["-v", "error", "-nostdin", "-f", "lavfi", "-i", "aevalsrc=sin(2*PI*440*t)/4:d=1", "-c:a", "pcm_s32le", wav]);
+              execFileSync("flac", ["--silent", "-o", flac, wav], { stdio: "ignore" });
+              const input = readFileSync(flac);
+              assert.equal(((input[20] & 1) << 4) + (input[21] >>> 4) + 1, 32);
+              const result = await validateMedia(input, "audio");
+              assert.equal(result.contentType, "audio/mpeg");
+              assert.deepEqual((await validateMedia(result.original, "mp3")).original, result.original);
+            } finally {
+              rmSync(dir, { recursive: true, force: true });
+            }
+          })().catch(error => { console.error(error); process.exitCode = 1; });
+          NODE
       - name: Verify development media ownership across app and worker
         run: |
           docker compose -p may-be-dev-media-ci -f compose.yaml -f compose.dev.yaml -f infra/testing/dev-media.compose.yaml up --build -d --wait app worker
