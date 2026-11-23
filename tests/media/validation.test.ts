@@ -5,13 +5,14 @@ import path from "node:path";
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
 import { runBoundedProcess, validateMedia, withUploadFile } from "@/server/media/validation";
-import { IMAGE_BYTES, type MediaKind } from "@/server/media/limits";
+import { AUDIO_BYTES, IMAGE_BYTES, type MediaKind } from "@/server/media/limits";
 
 const readUpload = (body: ReadableStream<Uint8Array>, kind: MediaKind, timeoutMs?: number) => withUploadFile(body,kind,file=>readFile(file),undefined,timeoutMs);
 const stream = (chunks: Uint8Array[]) => new ReadableStream<Uint8Array>({ start(controller) { for (const chunk of chunks) controller.enqueue(chunk); controller.close(); } });
 describe("media byte and parser bounds", () => {
   it("counts received bytes without trusting MIME or declared size", async () => {
     await expect(readUpload(stream([Buffer.alloc(IMAGE_BYTES), Buffer.from([1])]), "image")).rejects.toMatchObject({ code: "MEDIA_TOO_LARGE", status: 413 });
+    await expect(readUpload(stream([Buffer.alloc(AUDIO_BYTES), Buffer.from([1])]), "audio")).rejects.toMatchObject({ code: "MEDIA_TOO_LARGE", status: 413 });
     await expect(readUpload(stream([]), "image")).rejects.toMatchObject({ code: "MEDIA_INVALID" });
     expect(await readUpload(stream([Buffer.from([1]), Buffer.from([2])]), "image")).toEqual(Buffer.from([1,2]));
   });
@@ -64,6 +65,7 @@ describe("media byte and parser bounds", () => {
       await expect(validateMedia(Buffer.concat([input, Buffer.from("<script>active tail</script>")]),"audio")).rejects.toMatchObject({ code: "MEDIA_INVALID" });
       await expect(validateMedia(input.subarray(0,input.length-3),"audio")).rejects.toMatchObject({ code: "MEDIA_INVALID" });
       const track = result.original;
+      expect((await validateMedia(track, "mp3")).original).toEqual(track);
       const makeId3v24 = (payloadBytes: number) => {
         const header = Buffer.alloc(10);
         header.write("ID3", 0, "ascii");
@@ -78,5 +80,50 @@ describe("media byte and parser bounds", () => {
       await expect(validateMedia(makeId3v24(5 * 1024 * 1024), "audio")).rejects.toMatchObject({ code: "MEDIA_INVALID" });
       await expect(validateMedia(Buffer.concat(Array.from({length:1000},()=>track)), "audio")).rejects.toMatchObject({ code: "MEDIA_INVALID" });
     } finally { await rm(dir,{recursive:true,force:true}); }
-  });
+  }, 15_000);
+  it.each([["wav", "pcm_s16le"], ["wav", "pcm_s24le"], ["wav", "pcm_f32le"], ["flac", "flac"]])(
+    "transcodes %s (%s) to validated, metadata-free MP3", async (format, codec) => {
+      const dir = await mkdtemp(path.join(os.tmpdir(), "media-fixture-"));
+      try {
+        const file = path.join(dir, `tone.${format}`);
+        execFileSync("/usr/bin/ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "sine=d=0.4",
+          "-metadata", "title=PRIVATE TITLE", "-c:a", codec, file]);
+        const source = await readFile(file);
+        expect(source.includes(Buffer.from("PRIVATE TITLE"))).toBe(true);
+        const result = await validateMedia(source, "audio");
+        expect(result.contentType).toBe("audio/mpeg");
+        expect(result.durationMs).toBeGreaterThanOrEqual(400);
+        expect(result.durationMs).toBeLessThan(500);
+        expect(result.original.length).toBeLessThan(source.length);
+        expect(result.original.includes(Buffer.from("PRIVATE TITLE"))).toBe(false);
+        expect((await validateMedia(result.original, "mp3")).original).toEqual(result.original);
+        await expect(validateMedia(source, "mp3")).rejects.toMatchObject({ code: "MEDIA_INVALID" });
+        await expect(validateMedia(source.subarray(0, -1), "audio")).rejects.toMatchObject({ code: "MEDIA_INVALID" });
+        await expect(validateMedia(Buffer.concat([source, Buffer.from("unexpected tail")]), "audio")).rejects.toMatchObject({ code: "MEDIA_INVALID" });
+        if (format === "flac") {
+          const inconsistent = Buffer.from(source);
+          inconsistent.writeUInt32BE(inconsistent.readUInt32BE(22) + 4096, 22);
+          await expect(validateMedia(inconsistent, "audio")).rejects.toMatchObject({ code: "MEDIA_INVALID" });
+          inconsistent.fill(0, 22, 26);
+          expect((await validateMedia(inconsistent, "audio")).durationMs).toBe(result.durationMs);
+        }
+      } finally { await rm(dir, { recursive: true, force: true }); }
+    }, 15_000,
+  );
+  it.each([["wav", "pcm_s16le"], ["flac", "flac"]])("rejects overlong %s within the upload byte limit", async (format, codec) => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "media-fixture-"));
+    try {
+      const file = path.join(dir, `long.${format}`);
+      execFileSync("/usr/bin/ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "anullsrc=r=8000:cl=mono:d=181", "-c:a", codec, file]);
+      const source = await readFile(file);
+      expect(source.length).toBeLessThan(AUDIO_BYTES);
+      await expect(validateMedia(source, "audio")).rejects.toMatchObject({ code: "MEDIA_INVALID" });
+      if (format === "flac") {
+        // Some FLAC encoders leave the total sample count unknown.
+        source[21] &= 0xf0;
+        source.fill(0, 22, 26);
+        await expect(validateMedia(source, "audio")).rejects.toMatchObject({ code: "MEDIA_INVALID" });
+      }
+    } finally { await rm(dir, { recursive: true, force: true }); }
+  }, 15_000);
 });

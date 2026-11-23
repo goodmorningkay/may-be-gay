@@ -80,7 +80,7 @@ test("autosave races, stale tabs, failure recovery, history, report administrati
   let library = await (await context.request.get(`${app}/api/media`, { headers: { "x-editor-profile": (await state(context)).profileId } })).json();
   expect(library.assets.some((a: { state: string }) => a.state === "rejected")).toBe(true);
   expect((await context.request.post(`${app}/api/media?kind=image`, { headers: { origin: app, "x-editor-profile": (await state(context)).profileId, "content-type": "application/octet-stream" }, data: Buffer.alloc(5 * 1024 ** 2 + 1) })).status()).toBe(413);
-  for (const [label, kind, file] of [["Upload image", "image", files.image], ["Upload MP3", "audio", files.audio]]) {
+  for (const [label, kind, file] of [["Upload image", "image", files.image], ["Upload audio", "audio", files.audio]]) {
     const response = page.waitForResponse(r => r.url().includes(`/api/media?kind=${kind}`) && r.request().method() === "POST");
     await page.getByLabel(label, { exact: false }).setInputFiles(file); expect((await response).status()).toBe(202); await fixture("drain");
     await page.getByRole("button", { name: "Refresh media", exact: true }).click();

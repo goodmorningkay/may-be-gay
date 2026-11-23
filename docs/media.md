@@ -50,15 +50,19 @@ the session against the asset independently and does **not** require this header
   per side, 5 MiB), and a display derivative (maximum 1600 pixels per side,
   1 MiB). Public rendering uses the display derivative. Original upload bytes
   are never published and are removed after validation commits.
-- Audio: MP3 only, 10 MiB, at most 180 seconds. A complete frame walk rejects
-  free bitrate, reserved fields, mixed sample rate/channel configurations,
-  truncation, non-MP3 tails and overlong tracks. Bounded ID3v2.3/v2.4 and ID3v1
-  tags are stripped. At least three frames are required. FFmpeg then fully
-  decodes the stripped frames with the MP3 demuxer, strict error handling, one
-  thread and only the `file` protocol. There is no arbitrary input format or
-  transcoding. APE and unsupported tag layouts are rejected rather than guessed.
-  Frame-based duration includes encoder padding and can conservatively reject
-  a nominally three-minute track with extra padding.
+- Audio: MP3, PCM WAV (integer or float), and native FLAC, up to 10 MiB received
+  and 180 seconds. MP3 uploads retain their audio frames after ID3 tag stripping.
+  A complete frame walk rejects free bitrate, reserved fields, mixed sample
+  rate/channel configurations, truncation, trailing data and overlong tracks.
+  FFmpeg then fully decodes the stripped frames. WAV chunk bounds and sample
+  alignment are checked before decoding. FLAC frame CRCs and the declared sample
+  count, when available, are checked during processing.
+- FFmpeg transcodes WAV and FLAC to metadata-free variable-bitrate MP3 at LAME
+  quality 4 with a forced input demuxer, one thread, and only the `file` protocol.
+  The MP3 frame walk validates the result, including its duration. Encoder
+  padding can cause rejection near
+  the three-minute limit. The original lossless upload is trimmed from quarantine
+  once validation commits. Playback, publication, and backup continue to use MP3.
 - Upload receive timeout: 60 seconds. Reservation expiry: 15 minutes.
 - One parser across **all processes** via
   `pg_try_advisory_xact_lock(740301,1)`, held for the entire parser operation.
@@ -69,7 +73,7 @@ the session against the asset independently and does **not** require this header
   128 MiB JS heap. Parent wall timeout is 20 seconds and kills the process group.
   Combined stdout/stderr are capped at 16 KiB and never returned/logged as raw
   errors. Sharp cache is disabled, libvips concurrency and worker pool are one.
-  Audio's decoder additionally has a 512 MiB address-space limit, 10 CPU
+  FFmpeg additionally has a 512 MiB address-space limit, 10 CPU
   seconds, 32 descriptors and a 10-second wall timeout. Address-space bounds
   are not a promise of a particular RSS; the container needs an appropriate
   aggregate memory/CPU limit and monitored disk capacity as defense in depth.
@@ -317,8 +321,8 @@ and real Cloudflare purge acceptance still require launch configuration.
    profile host routing. Verify renderer map integration and user-initiated audio.
 4. Install maintained distro **ffmpeg** and **util-linux** (`/usr/bin/ffmpeg`,
    `/usr/bin/prlimit`) in application/worker images, with their runtime libraries.
-   **ffprobe is not used or required**: duration is frame-walked and FFmpeg does
-   full bounded decode. Keep distro security updates enabled. The existing
+   FFmpeg needs the `libmp3lame` encoder for WAV and FLAC conversion.
+   **ffprobe is not required**. Keep distro security updates enabled. The existing
    Dockerfile includes these packages.
 5. Copy `src/server/media/parser.cjs` to exactly that runtime path relative to
    process.cwd(), and include `sharp` plus its platform-specific libvips/native
@@ -333,7 +337,7 @@ and real Cloudflare purge acceptance still require launch configuration.
 
 `npx vitest run tests/media` covers stream byte/time bounds, generated strict
 image variants, metadata removal, APNG/WebP animation rejection, active/MIME
-spoofing, truncated/overlong MP3 data, full audio decode, parser wall/output
+spoofing, truncated/overlong audio, WAV and FLAC conversion, MP3 decode, parser wall/output
 bounds, API authorization/CSRF, storage namespace/immutability, S3 command and
 failure contracts, Cloudflare purge and response headers/ranges. Fixtures are
 small programmatically generated colors and sine-wave audio, with no third-party

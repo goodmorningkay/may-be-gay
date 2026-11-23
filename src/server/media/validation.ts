@@ -73,15 +73,16 @@ export async function runBoundedProcess(command: string, args: string[], timeout
 }
 // Caller MUST hold pg_try_advisory_xact_lock(740301, 1) for the whole invocation.
 // This low-level function is exported for isolated parser tests only.
-export async function validateMedia(data: Buffer, kind: MediaKind, locator?: ScratchLocator) {
-  if (!data.length || data.length > inputLimit(kind)) throw invalidMedia();
+export async function validateMedia(data: Buffer, kind: MediaKind | "mp3", locator?: ScratchLocator) {
+  const byteLimit = inputLimit(kind === "image" ? "image" : "audio");
+  if (!data.length || data.length > byteLimit) throw invalidMedia();
   const dir = await mkdtemp(path.join(os.tmpdir(), scratchPrefix(locator)));
   try {
     const input = path.join(dir, "input"), original = path.join(dir, "validated"), display = path.join(dir, "display");
     await writeFile(input, data, { mode: 0o600, flag: "wx" });
     const result = resultSchema.parse(JSON.parse(await runBoundedProcess(process.execPath, ["--jitless", "--max-old-space-size=128", "--max-semi-space-size=8", path.join(process.cwd(), "src/server/media/parser.cjs"), kind, input, original, display])));
     const full = await readFile(original), small = kind === "image" ? await readFile(display) : full;
-    if (!full.length || full.length > inputLimit(kind) || (kind === "image" && small.length > 1024 ** 2)) throw invalidMedia();
+    if (!full.length || full.length > byteLimit || (kind === "image" && small.length > 1024 ** 2)) throw invalidMedia();
     return { ...result, original: full, display: small };
   } finally { await rm(dir, { recursive: true, force: true }); }
 }
