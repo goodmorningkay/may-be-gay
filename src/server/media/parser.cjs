@@ -68,35 +68,67 @@ async function imageInput(data, storedWebp) {
   const frameHeight = meta.pageHeight ?? meta.height;
   const pixels = meta.width * frameHeight * frames;
   if (meta.format !== format || !meta.width || !frameHeight || frames > (options.animated ? MAX_FRAMES : 1) || pixels > MAX_PIXELS) fail();
-  return { options, frames, pixels, maxSide: Math.max(meta.width, frameHeight) };
+  return { options, frames, pixels, width: meta.width, height: frameHeight, delay: meta.delay, loop: meta.loop };
 }
+function fitInside(side) { return { width: side, height: side, fit: "inside", withoutEnlargement: true }; }
 function encodeWebp(data, options, side, webp) {
-  return sharp(data, options).rotate().resize({ width: side, height: side, fit: "inside", withoutEnlargement: true })
+  return sharp(data, options).rotate().resize(fitInside(side))
     .webp(webp).timeout({ seconds: 10 }).toBuffer({ resolveWithObject: true });
 }
-async function animationVariants(data, { options, maxSide, pixels }) {
-  // Lossless WebP retains small palette changes and compresses flat graphics
-  // without the lossy encoder's frame-by-frame quantization.
-  const encode = side => encodeWebp(data, options, side, { lossless: true, effort: 1 });
-  const full = await encode(4096);
-  let small = maxSide > 1280 ? await encode(1280) : full;
-  if (small.data.length > MiB) {
+async function resizeAnimation(pixels, { width, height, frames }, side) {
+  // Sharp decodes animations to a vertical strip. Resize each frame separately
+  // so the resampling kernel cannot pull pixels from a neighboring frame.
+  const frameBytes = width * height * 4;
+  const resized = [];
+  for (let index = 0; index < frames; index++) {
+    const frame = pixels.subarray(index * frameBytes, (index + 1) * frameBytes);
+    resized.push(await sharp(frame, { raw: { width, height, channels: 4 } })
+      .resize(fitInside(side)).raw().toBuffer({ resolveWithObject: true }));
+  }
+  const first = resized[0].info;
+  return sharp(Buffer.concat(resized.map(frame => frame.data)), {
+    raw: { width: first.width, height: first.height * frames, pageHeight: first.height, channels: 4 },
+    limitInputPixels: MAX_PIXELS,
+  });
+}
+function chooseAnimationDisplay(candidates) {
+  // Only compare byte sizes between encodes that retained the most frames.
+  const pages = Math.max(...candidates.map(candidate => candidate.pages));
+  return candidates.filter(candidate => candidate.pages === pages && candidate.data.length <= MiB)
+    .sort((a, b) => a.data.length - b.data.length)[0];
+}
+async function animationVariants(data, input) {
+  const { options, width, height, delay, loop, pixels } = input;
+  const maxSide = Math.max(width, height);
+  let decoded;
+  async function encode(side) {
+    let image = sharp(data, options);
+    if (maxSide > side) {
+      decoded ??= await image.ensureAlpha().raw().timeout({ seconds: 10 }).toBuffer();
+      image = await resizeAnimation(decoded, input, side);
+    }
+    // Lossless WebP preserves subtle color changes in the retained frames.
+    const encoded = await image.webp({ lossless: true, effort: 1, delay, loop })
+      .timeout({ seconds: 10 }).toBuffer({ resolveWithObject: true });
+    // Encode info reports input pages even when WebP combines identical frames.
+    const pages = (await sharp(encoded.data).metadata()).pages ?? 1;
+    return { ...encoded, pages };
+  }
+
+  const candidates = [await encode(4096)];
+  if (maxSide > 1280) candidates.push(await encode(1280));
+  let display = chooseAnimationDisplay(candidates);
+  if (!display) {
     // Target up to 1 MiB of decoded RGBA on the retry, since resampling can
     // introduce many more colors than the original GIF palette.
     const scale = Math.sqrt(MiB / (pixels * 4));
     const side = Math.max(1, Math.min(640, Math.floor(maxSide * scale)));
-    small = await encode(side);
+    candidates.push(await encode(side));
+    display = chooseAnimationDisplay(candidates);
   }
-  if (small !== full) {
-    // Sharp's encode info reports input pages. Inspect the encoded frames
-    // because downsizing can make consecutive, distinct frames identical.
-    const originalPages = (await sharp(full.data).metadata()).pages ?? 1;
-    if (maxSide > 4096 && originalPages === 1) fail();
-    const displayPages = (await sharp(small.data).metadata()).pages ?? 1;
-    if (displayPages < originalPages) small = full;
-  }
-  if (small.data.length > MiB) fail();
-  return [full.data.length <= 5 * MiB ? full : small, small];
+  if (!display || (maxSide > 4096 && display.pages === 1)) fail();
+  const original = candidates.find(candidate => candidate.pages === display.pages && candidate.data.length <= 5 * MiB);
+  return [original, display];
 }
 async function stillVariants(data, options) {
   const full = await encodeWebp(data, options, 4096, { quality: 85, effort: 3 });

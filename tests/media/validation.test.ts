@@ -10,6 +10,22 @@ import { gifFixture } from "./gif-fixture";
 
 const readUpload = (body: ReadableStream<Uint8Array>, kind: MediaKind, timeoutMs?: number) => withUploadFile(body,kind,file=>readFile(file),undefined,timeoutMs);
 const stream = (chunks: Uint8Array[]) => new ReadableStream<Uint8Array>({ start(controller) { for (const chunk of chunks) controller.enqueue(chunk); controller.close(); } });
+
+async function grayscaleGif(width: number, height: number, delay: number[], shade: (x: number, y: number, frame: number) => number) {
+  const pixels = Buffer.alloc(width * height * delay.length * 3);
+  let offset = 0;
+  for (let frame = 0; frame < delay.length; frame++) {
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        pixels.fill(shade(x, y, frame), offset, offset + 3);
+        offset += 3;
+      }
+    }
+  }
+  return sharp(pixels, { raw: { width, height: height * delay.length, pageHeight: height, channels: 3 } })
+    .gif({ delay, dither: 0, interPaletteMaxError: 0 }).toBuffer();
+}
+
 describe("media byte and parser bounds", () => {
   it("counts received bytes without trusting MIME or declared size", async () => {
     await expect(readUpload(stream([Buffer.alloc(IMAGE_BYTES), Buffer.from([1])]), "image")).rejects.toMatchObject({ code: "MEDIA_TOO_LARGE", status: 413 });
@@ -81,6 +97,51 @@ describe("media byte and parser bounds", () => {
     expect(result.displayWidth).toBe(width);
     expect(result.display.equals(result.original)).toBe(true);
     expect(result.display.length).toBeLessThanOrEqual(DISPLAY_BYTES);
+  });
+  it("resamples each GIF frame without bleeding into the adjacent frame", async () => {
+    const width = 2560, height = 256, delay = [300, 500];
+    const input = await grayscaleGif(width, height, delay, (x, y, frame) => {
+      if (y === 0) return 0;
+      if (y === height - 1) return 255;
+      if (frame === 0) return 96;
+      return x % 2 === 0 ? 95 : 97;
+    });
+    const result = await validateMedia(input, "image");
+    expect(result).toMatchObject({ displayWidth: 1280, displayHeight: 128 });
+    const output = sharp(result.display, { animated: true });
+    expect(await output.metadata()).toMatchObject({ pages: 2, delay });
+    const source = await sharp(input, { animated: true }).removeAlpha().raw().toBuffer();
+    const resized = await output.removeAlpha().raw().toBuffer();
+    const sourceFrameBytes = width * height * 3, displayFrameBytes = resized.length / delay.length;
+    for (let frame = 0; frame < delay.length; frame++) {
+      const sourceFrame = source.subarray(frame * sourceFrameBytes, (frame + 1) * sourceFrameBytes);
+      const expected = await sharp(sourceFrame, { raw: { width, height, channels: 3 } }).resize(1280, 128).raw().toBuffer();
+      const displayFrame = resized.subarray(frame * displayFrameBytes, (frame + 1) * displayFrameBytes);
+      expect(displayFrame.equals(expected)).toBe(true);
+    }
+  });
+  it("keeps a compact full animation when resizing inflates the display file", async () => {
+    const width = 1281, height = 720, delay = [300, 500, 300];
+    const input = await grayscaleGif(width, height, delay, (x, y, frame) => {
+      const square = Math.floor((x + frame) / 4) + Math.floor(y / 4);
+      return square % 2 === 0 ? 45 : 210;
+    });
+    const result = await validateMedia(input, "image");
+    expect(result).toMatchObject({ displayWidth: width, displayHeight: height });
+    expect(result.display.equals(result.original)).toBe(true);
+    expect(result.display.length).toBeLessThan(input.length);
+    expect(await sharp(result.display).metadata()).toMatchObject({ pages: 3, delay });
+  });
+  it("uses the smaller animation for both variants when the wider encode loses frames", async () => {
+    const delay = [300, 500];
+    const input = await grayscaleGif(8192, 192, delay, (x, _y, frame) => {
+      if (frame === 0) return 96;
+      return x % 2 === 0 ? 95 : 97;
+    });
+    const result = await validateMedia(input, "image");
+    expect(result).toMatchObject({ width: 1280, height: 30, displayWidth: 1280, displayHeight: 30 });
+    expect(result.display.equals(result.original)).toBe(true);
+    expect(await sharp(result.display).metadata()).toMatchObject({ pages: 2, delay });
   });
   it("compresses a long, striped animation without sacrificing frames or resolution", async () => {
     const width = 640, height = 480, frames = 50;
