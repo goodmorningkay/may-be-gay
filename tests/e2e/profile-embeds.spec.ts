@@ -1,0 +1,102 @@
+import { randomBytes } from "node:crypto";
+import { account, app, editorSection, expect, publish, saved, state, test } from "./helpers";
+
+const lastFm = { title: "Recently played", url: "https://www.last.fm/user/Petra1999", frame: "https://petracoding.github.io/neocities/widgets/lastfm?username=Petra1999", provider: "Last.fm" };
+const spotify = { title: "Favourite track", url: "https://open.spotify.com/track/7GhIk7Il098yCjg4BQjzvb?si=share-id", frame: "https://open.spotify.com/embed/track/7GhIk7Il098yCjg4BQjzvb", provider: "Spotify" };
+
+test("saves and publishes ordered sandboxed embeds in Stacked and Split layouts", async ({ page, context, expectedErrors }) => {
+  expectedErrors.push(/^Console: Failed to load resource: the server responded with a status of 404.*\[https:\/\/app\.may-be\.localhost\/api\/profile\]$/);
+  const requests: string[] = [];
+  for (const embed of [lastFm, spotify]) {
+    await context.route(embed.frame, async route => {
+      expect(await route.request().headerValue("referer")).toBeNull();
+      requests.push(embed.frame);
+      await route.fulfill({ contentType: "text/html", body: `<p>${embed.provider} fixture</p>` });
+    });
+  }
+  const owner = await account(page, `review-embeds-${randomBytes(3).toString("hex")}`);
+  await editorSection(page, "Embeds");
+  for (const [index, embed] of [lastFm, spotify].entries()) {
+    await page.getByRole("button", { name: "Add embed", exact: true }).click();
+    const fields = page.getByRole("group", { name: `Embed ${index + 1}`, exact: true });
+    await fields.getByLabel("Title", { exact: true }).fill(embed.title);
+    const url = fields.getByLabel("Embed URL");
+    await url.fill("https://example.com/unsupported");
+    await expect(url).toHaveAttribute("aria-invalid", "true");
+    await expect(page.getByRole("button", { name: "Publish page", exact: true })).toBeDisabled();
+    await url.fill(embed.url);
+    await saved(page);
+  }
+  await page.getByRole("group", { name: "Embed 2", exact: true }).getByRole("button", { name: "Move up" }).click();
+  await saved(page);
+  expect((await state(context)).document.embeds).toEqual([
+    expect.objectContaining({ title: spotify.title, url: spotify.url }),
+    expect.objectContaining({ title: lastFm.title, url: lastFm.url }),
+  ]);
+
+  await page.goto(`${app}/account`);
+  await page.getByRole("link", { name: "Edit profile" }).click();
+  await expect(page).toHaveURL(`${app}/editor`);
+  const live = page.frameLocator('iframe[title^="Private local profile preview"]');
+  await expect(live.getByRole("list", { name: "Profile embeds" }).getByRole("heading")).toHaveText([spotify.title, lastFm.title]);
+  expect(requests).toEqual([]);
+  await live.getByRole("button", { name: `Load Last.fm embed: ${lastFm.title}` }).click();
+  await expect(live.frameLocator(`iframe[title="${lastFm.title} (Last.fm)"]`).getByText("Last.fm fixture")).toBeVisible();
+
+  const preview = await context.newPage();
+  await preview.goto(`${app}/preview`);
+  await preview.getByRole("button", { name: `Load Spotify embed: ${spotify.title}` }).click();
+  await expect(preview.frameLocator(`iframe[title="${spotify.title} (Spotify)"]`).getByText("Spotify fixture")).toBeVisible();
+
+  await publish(page);
+  const publicProfile = await context.newPage();
+  await publicProfile.setViewportSize({ width: 1050, height: 850 });
+  const publicUrl = `https://${owner.username}.may-be.localhost`;
+  await publicProfile.goto(publicUrl);
+  const cards = publicProfile.getByRole("list", { name: "Profile embeds" });
+  const items = cards.getByRole("listitem");
+  await expect(cards.getByRole("heading")).toHaveText([spotify.title, lastFm.title]);
+  const first = (await items.nth(0).boundingBox())!;
+  const second = (await items.nth(1).boundingBox())!;
+  expect(second.x).toBe(first.x);
+  expect(second.y).toBeGreaterThan(first.y + first.height);
+  expect(await publicProfile.locator("iframe").count()).toBe(0);
+
+  for (const embed of [spotify, lastFm]) {
+    await publicProfile.getByRole("button", { name: `Load ${embed.provider} embed: ${embed.title}` }).click();
+    const iframe = publicProfile.locator(`iframe[title="${embed.title} (${embed.provider})"]`);
+    await expect(iframe).toHaveAttribute("sandbox", embed === spotify ? "allow-scripts allow-same-origin" : "allow-scripts");
+    await expect(iframe).toHaveAttribute("referrerpolicy", "no-referrer");
+    const content = iframe.contentFrame().getByText(`${embed.provider} fixture`);
+    await expect(content).toBeVisible();
+    expect(await content.evaluate(() => self.origin)).toBe(embed === spotify ? "https://open.spotify.com" : "null");
+  }
+  expect(requests).toEqual([lastFm.frame, spotify.frame, spotify.frame, lastFm.frame]);
+
+  await editorSection(page, "Appearance");
+  await page.getByLabel("Layout", { exact: true }).selectOption("split");
+  await publish(page);
+  await publicProfile.reload();
+  const left = (await items.nth(0).boundingBox())!;
+  const right = (await items.nth(1).boundingBox())!;
+  const profileHeader = (await publicProfile.locator("main header").boundingBox())!;
+  expect(left.x).toBe(profileHeader.x);
+  expect(left.y).toBeGreaterThan(profileHeader.y + profileHeader.height);
+  expect(right.x).toBeGreaterThan(left.x + left.width);
+  expect(right.y).toBe(left.y);
+
+  await publicProfile.setViewportSize({ width: 320, height: 700 });
+  const mobileFirst = (await items.nth(0).boundingBox())!;
+  const mobileSecond = (await items.nth(1).boundingBox())!;
+  expect(mobileSecond.x).toBe(mobileFirst.x);
+  expect(mobileSecond.y).toBeGreaterThan(mobileFirst.y + mobileFirst.height);
+
+  await editorSection(page, "Embeds");
+  await page.getByRole("group", { name: "Embed 1", exact: true }).getByRole("button", { name: "Remove embed" }).click();
+  await saved(page);
+  await publicProfile.reload();
+  await expect(cards.getByRole("heading")).toHaveText([spotify.title, lastFm.title]);
+  await publish(page);
+  await publicProfile.reload();
+  await expect(cards.getByRole("heading")).toHaveText([lastFm.title]);
+});
