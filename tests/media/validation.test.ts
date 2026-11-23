@@ -122,6 +122,20 @@ describe("media byte and parser bounds", () => {
     expect((original[2] >> 2) & 3).toBe(2); // 8 kHz at MPEG 2.5
     expect(original[3] >> 6).toBe(3); // Mono
   }, 15_000);
+  it.each([
+    ["32-bit FLAC", "aevalsrc=sin(2*PI*440*t)/4:d=0.5", "pcm_s32le"],
+    ["four-channel FLAC with a center speaker", "aevalsrc=0|0|sin(2*PI*440*t)/4|0:d=0.5:c=4.0", "pcm_s24le"],
+  ])("converts %s with the same samples and speaker layout as WAV", async (_label, source, codec) => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "media-fixture-"));
+    try {
+      const wav = path.join(dir, "tone.wav"), flac = path.join(dir, "tone.flac");
+      execFileSync("/usr/bin/ffmpeg", ["-v", "error", "-f", "lavfi", "-i", source, "-c:a", codec, wav]);
+      execFileSync("/usr/bin/flac", ["--silent", "--channel-map=none", "-o", flac, wav], { stdio: "ignore" });
+      const expected = await validateMedia(await readFile(wav), "audio");
+      const actual = await validateMedia(await readFile(flac), "audio");
+      expect(actual.original).toEqual(expected.original);
+    } finally { await rm(dir, { recursive: true, force: true }); }
+  }, 15_000);
   it.each([["wav", "pcm_s16le"], ["flac", "flac"]])("rejects overlong %s within the upload byte limit", async (format, codec) => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "media-fixture-"));
     try {

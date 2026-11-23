@@ -58,9 +58,11 @@ the session against the asset independently and does **not** require this header
   alignment are checked before decoding, and FFmpeg is restricted to the
   declared PCM decoder. The FLAC reference decoder verifies the complete
   stream, including frame CRCs, the declared sample count and checksum when
-  present, and end-of-file alignment.
-- FFmpeg transcodes WAV and FLAC to metadata-free variable-bitrate MP3 at LAME
-  quality 4 with a forced input demuxer, one thread, and only the `file` protocol.
+  present, and end-of-file alignment. It pipes decoded PCM to FFmpeg so
+  32-bit samples and speaker layouts reach the MP3 encoder.
+- FFmpeg encodes metadata-free variable-bitrate MP3 at LAME quality 4. It runs
+  on one thread with a forced input demuxer and reads from the private WAV file
+  or the FLAC decoder's pipe.
   Supported sample rates and mono/stereo layouts are preserved. The MP3 frame
   walk validates the result, including its duration. Encoder padding can cause
   rejection near the three-minute limit. The lossless upload is trimmed from

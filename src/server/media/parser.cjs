@@ -116,27 +116,38 @@ function verifyFlacFrameCrc(data, start) {
   if (crc !== 0) fail();
 }
 function prepareFlac(data, input) {
-  // Native FLAC starts with a single 34-byte STREAMINFO block. Keep it, skip
-  // ancillary blocks (including artwork), and pass every audio frame to FFmpeg.
+  // Keep STREAMINFO and the Vorbis comments, which can carry the speaker
+  // channel mask. The reference decoder writes the mask into its WAV header.
   if (data.length < 42 || (data[4] & 127) !== 0 || data.readUIntBE(5, 3) !== 34) fail();
   // STREAMINFO packs rate (20 bits), channels (3), bit depth (5) and sample count (36).
   const rate = data.readUIntBE(18, 3) >>> 4;
+  const bits = ((data[20] & 1) << 4) + (data[21] >>> 4) + 1;
+  const decoder = PCM_DECODERS[1][Math.ceil(bits / 8) * 8];
   const samples = (data[21] & 15) * 2 ** 32 + data.readUInt32BE(22);
-  if (!rate || samples / rate > MAX_AUDIO_SECONDS) fail();
+  if (!rate || bits < 4 || samples / rate > MAX_AUDIO_SECONDS) fail();
+  let comments;
   let header = 4;
   let end = 42;
   while (!(data[header] & 128)) {
     header = end;
-    if (header + 4 > data.length || (data[header] & 127) === 0 || (data[header] & 127) === 127) fail();
+    if (header + 4 > data.length) fail();
+    const type = data[header] & 127;
+    if (type === 0 || type === 127) fail();
     end = header + 4 + data.readUIntBE(header + 1, 3);
     if (end > data.length) fail();
+    if (type === 4) {
+      if (comments) fail();
+      comments = data.subarray(header, end);
+    }
   }
   if (end === data.length) fail();
   verifyFlacFrameCrc(data, end);
   if (end !== 42) {
-    data[4] = 128;
-    fs.writeFileSync(input, Buffer.concat([data.subarray(0, 42), data.subarray(end)]));
+    data[4] = comments ? 0 : 128;
+    if (comments) comments[0] |= 128;
+    fs.writeFileSync(input, Buffer.concat([data.subarray(0, 42), ...(comments ? [comments] : []), data.subarray(end)]));
   }
+  return decoder;
 }
 function runAudioTool(command, args) {
   // Inherit the parser's group so its native guardian also reaps these tools.
@@ -146,36 +157,43 @@ function runAudioTool(command, args) {
       run.stderr?.includes("Unknown encoder 'libmp3lame'")) process.exit(78);
   if (run.error || run.status !== 0) fail();
 }
-function runFfmpeg(format, input, outputArgs, decoder) {
-  runAudioTool("/usr/bin/ffmpeg", [
-    "-nostdin", "-hide_banner", "-loglevel", "error", "-nostats", "-xerror",
-    "-err_detect", format === "flac" ? "crccheck+explode" : "explode", "-threads", "1", "-protocol_whitelist", "file",
+function ffmpegArgs(format, input, outputArgs, decoder) {
+  const pipe = input === "pipe:0";
+  return [
+    "-nostdin", "-hide_banner", "-loglevel", "error", "-nostats",
+    // FFmpeg can mark a short final packet from an unknown-length WAV pipe as
+    // corrupt. The reference decoder validates the stream that feeds the pipe.
+    ...(pipe ? [] : ["-xerror"]),
+    "-err_detect", "explode", "-threads", "1", "-protocol_whitelist", pipe ? "pipe" : "file",
     // The WAV demuxer can probe PCM-looking payloads for other codecs.
     ...(decoder ? ["-codec_whitelist", decoder, "-c:a", decoder] : []),
     "-f", format, "-i", input, "-map", "0:a:0", "-filter_threads", "1", "-threads", "1", ...outputArgs,
-  ]);
+  ];
 }
 function processAudio(data, input, output, mp3Only) {
   const magic = data.toString("latin1", 0, 4);
   if (!mp3Only && (magic === "RIFF" || magic === "fLaC")) {
-    const flac = magic === "fLaC";
-    const decoder = flac ? "flac" : inspectWav(data);
-    if (flac) prepareFlac(data, input);
-    runFfmpeg(flac ? "flac" : "wav", input, [
+    const encode = [
       "-map_metadata", "-1", "-map_chapters", "-1", "-c:a", "libmp3lame", "-q:a", "4",
       // Stop beyond the allowed duration, then reject any oversized result.
       "-t", String(MAX_AUDIO_SECONDS + 1), "-id3v2_version", "0", "-f", "mp3", output,
-    ], decoder);
-    const track = mp3Frames(fs.readFileSync(output));
-    // FFmpeg can accept trailing bytes and whole missing frames. The reference
-    // decoder verifies the stream through EOF, including declared sample count
-    // and the PCM checksum when present.
-    if (flac) runAudioTool("/usr/bin/flac", ["--test", "--silent", "--", input]);
-    return track.durationMs;
+    ];
+    if (magic === "fLaC") {
+      const decoder = prepareFlac(data, input);
+      // Use the reference decoder for validation and 32-bit support. Its PCM
+      // travels through a bounded pipe, and both processes must succeed.
+      runAudioTool("/bin/bash", ["-o", "pipefail", "-c",
+        '[[ -x /usr/bin/flac && -x /usr/bin/ffmpeg ]] || exit 127\n' +
+        '/usr/bin/flac --decode --stdout --silent -- "$1" | /usr/bin/ffmpeg "${@:2}"',
+        "flac-to-mp3", input, ...ffmpegArgs("wav", "pipe:0", encode, decoder)]);
+    } else {
+      runAudioTool("/usr/bin/ffmpeg", ffmpegArgs("wav", input, encode, inspectWav(data)));
+    }
+    return mp3Frames(fs.readFileSync(output)).durationMs;
   }
   const track = mp3Frames(data);
   fs.writeFileSync(output, track.data, { flag: "wx", mode: 0o600 });
-  runFfmpeg("mp3", output, ["-f", "null", "-"]);
+  runAudioTool("/usr/bin/ffmpeg", ffmpegArgs("mp3", output, ["-f", "null", "-"]));
   return track.durationMs;
 }
 async function main() {
