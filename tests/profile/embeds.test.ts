@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defaultProfileDocument, profileDocumentSchema } from "@/domain/profile";
+import { defaultProfileDocument, getThemeColors, profileDocumentSchema } from "@/domain/profile";
 import { maxProfileEmbeds, resolveProfileEmbed } from "@/domain/profile-embeds";
 
 const lastFm = { id: "9bcefb7c-f0df-4ed5-a8f6-d93f77cb6d61", title: "Recently played", url: "https://www.last.fm/user/Petra1999" };
@@ -14,13 +14,26 @@ describe("profile embeds", () => {
 
   it("builds frame and outbound URLs from supported resource identifiers", () => {
     expect(resolveProfileEmbed(lastFm.url)).toMatchObject({
-      src: "https://petracoding.github.io/neocities/widgets/lastfm?username=Petra1999",
+      src: "https://lastfm-embed.vercel.app/api/currently-playing?user=Petra1999&showTitle=false",
       href: lastFm.url,
     });
     expect(resolveProfileEmbed(spotify.url)).toMatchObject({
       src: "https://open.spotify.com/embed/track/7GhIk7Il098yCjg4BQjzvb",
       href: "https://open.spotify.com/track/7GhIk7Il098yCjg4BQjzvb",
     });
+  });
+
+  it("sets the Last.fm palette and gives each palette its own provider cache key", () => {
+    const theme = { ...defaultProfileDocument.theme, preset: "midnight" as const };
+    const preset = new URL(resolveProfileEmbed(lastFm.url, getThemeColors(theme))!.src).searchParams;
+    expect(Object.fromEntries(preset)).toMatchObject({ bgColor: "#232a38", textColor: "#f2eee5", urlColor: "#cad8ff" });
+
+    const customColors = { surface: "#181026", ink: "#F6ECFF", accent: "#DAABFF" };
+    const custom = new URL(resolveProfileEmbed(lastFm.url, getThemeColors({ ...theme, colors: customColors }))!.src).searchParams;
+    expect(Object.fromEntries(custom)).toMatchObject({ bgColor: "#181026", textColor: "#F6ECFF", urlColor: "#DAABFF" });
+    expect(custom.get("theme")).toBe("may-be-gay-181026-f6ecff-daabff");
+    expect(custom.get("theme")).not.toBe(preset.get("theme"));
+    expect(resolveProfileEmbed(spotify.url, customColors)).toEqual(resolveProfileEmbed(spotify.url));
   });
 
   it("resolves localized URLs to the same validated provider sources", () => {
@@ -51,7 +64,7 @@ describe("profile embeds", () => {
     "https://www.last.fm/user/Petra1999\n",
     "https://www.last.fm/user/%2FPetra1999",
     "https://www.last.fm/es%2fuser%2fPetra1999",
-    "https://petracoding.github.io/neocities/widgets/everything",
+    "https://lastfm-embed.vercel.app/api/currently-playing?user=Petra1999",
     "https://open.spotify.com/redirect?uri=7GhIk7Il098yCjg4BQjzvb",
     "https://open.spotify.com/intl-de/redirect?uri=7GhIk7Il098yCjg4BQjzvb",
   ])("rejects unsupported input %j", url => {

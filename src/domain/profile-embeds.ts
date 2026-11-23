@@ -1,22 +1,34 @@
 import { z } from "zod";
+import type { getThemeColors } from "./profile";
 
 export const maxProfileEmbeds = 6;
 export const maxEmbedUrlLength = 2048;
 
-const lastFmWidget = "https://petracoding.github.io/neocities/widgets/lastfm";
+const lastFmWidget = "https://lastfm-embed.vercel.app/api/currently-playing";
 const spotifyPlayer = "https://open.spotify.com/embed/";
 
 export const profileEmbedFrameSources = [lastFmWidget, spotifyPlayer];
 
-export function resolveProfileEmbed(url: string) {
+type EmbedColors = Pick<ReturnType<typeof getThemeColors>, "surface" | "ink" | "accent">;
+
+export function resolveProfileEmbed(url: string, colors?: EmbedColors) {
   const lastFm = /^https:\/\/(?:www\.)?last\.fm\/(?:[a-z]{2}\/)?user\/([a-z][a-z0-9_-]{1,14})\/?$/i.exec(url);
   if (lastFm) {
     const username = lastFm[1];
+    const params = new URLSearchParams({ user: username, showTitle: "false" });
+    if (colors) {
+      const { surface, ink, accent } = colors;
+      params.set("bgColor", surface);
+      params.set("textColor", ink);
+      params.set("urlColor", accent);
+      // Snoozeds keys its HTML cache by username and theme name, without the color overrides.
+      params.set("theme", `may-be-gay-${[surface, ink, accent].map(color => color.slice(1).toLowerCase()).join("-")}`);
+    }
     return {
       provider: "Last.fm" as const,
-      src: `${lastFmWidget}?username=${username}`,
+      src: `${lastFmWidget}?${params}`,
       href: `https://www.last.fm/user/${username}`,
-      height: 96,
+      height: 176,
     };
   }
 

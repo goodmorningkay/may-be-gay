@@ -1,7 +1,13 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { account, app, editorSection, expect, publish, saved, state, test } from "./helpers";
 
-const lastFm = { title: "Recently played", url: "https://www.last.fm/es/user/Petra1999", frame: "https://petracoding.github.io/neocities/widgets/lastfm?username=Petra1999", provider: "Last.fm", loadName: "Load Last.fm embed via PetraPixel" };
+const lastFm = {
+  title: "Recently played",
+  url: "https://www.last.fm/es/user/Petra1999",
+  frame: "https://lastfm-embed.vercel.app/api/currently-playing?user=Petra1999&showTitle=false&bgColor=%23181026&textColor=%23f2eee5&urlColor=%23daabff&theme=may-be-gay-181026-f2eee5-daabff",
+  provider: "Last.fm",
+  loadName: "Load Last.fm embed",
+};
 const spotify = { title: "Favourite track", url: "https://open.spotify.com/intl-de/track/7GhIk7Il098yCjg4BQjzvb?si=share-id", frame: "https://open.spotify.com/embed/track/7GhIk7Il098yCjg4BQjzvb", provider: "Spotify", loadName: "Load Spotify embed" };
 
 test("saves and publishes ordered sandboxed embeds in Stacked and Split layouts", async ({ page, context, expectedErrors }) => {
@@ -21,7 +27,10 @@ test("saves and publishes ordered sandboxed embeds in Stacked and Split layouts"
   }));
   const seeded = await context.request.put(`${app}/api/profile`, {
     headers: { origin: app, "x-editor-profile": initial.profileId },
-    data: { expectedVersion: initial.editVersion, document: { ...initial.document, links } },
+    data: {
+      expectedVersion: initial.editVersion,
+      document: { ...initial.document, links, theme: { ...initial.document.theme, preset: "midnight", colors: { surface: "#181026", accent: "#daabff" } } },
+    },
   });
   expect(seeded.status()).toBe(200);
   await page.reload();
@@ -83,12 +92,15 @@ test("saves and publishes ordered sandboxed embeds in Stacked and Split layouts"
   for (const embed of [spotify, lastFm]) {
     await publicProfile.getByRole("button", { name: `${embed.loadName}: ${embed.title}` }).click();
     const iframe = publicProfile.locator(`iframe[title="${embed.title} (${embed.provider})"]`);
-    await expect(iframe).toHaveAttribute("sandbox", embed === spotify ? "allow-scripts allow-same-origin" : "allow-scripts");
+    await expect(iframe).toHaveAttribute("sandbox", "allow-scripts allow-same-origin");
     await expect(iframe).toHaveAttribute("referrerpolicy", "no-referrer");
     const content = iframe.contentFrame().getByText(`${embed.provider} fixture`);
     await expect(content).toBeVisible();
-    expect(await content.evaluate(() => self.origin)).toBe(embed === spotify ? "https://open.spotify.com" : "null");
+    expect(await content.evaluate(() => self.origin)).toBe(new URL(embed.frame).origin);
   }
+  const lastFmFrame = publicProfile.locator(`iframe[title="${lastFm.title} (${lastFm.provider})"]`);
+  await expect(lastFmFrame).toHaveCSS("background-color", "rgb(24, 16, 38)");
+  await expect(lastFmFrame).toHaveCSS("color-scheme", "light");
   expect(requests).toEqual([lastFm.frame, spotify.frame, spotify.frame, lastFm.frame]);
 
   await editorSection(page, "Appearance");

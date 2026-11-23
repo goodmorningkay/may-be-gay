@@ -56,9 +56,9 @@ The caller must supply its validated apex domain, not a request Host header or a
 
 All profile text is React text content, including HTML-looking input. Owned media URLs come only from the server resolver map. Controlled custom colors and gradients produce validated inline CSS custom properties. Legacy documents produce no inline styles. Outbound profile links are ordinary same-tab anchors in document order with the destination host visible. They continue to work with JavaScript disabled. Platform attribution and a visible “Report this page or get support” link remain available even for an empty profile. The apex report form is implemented. Operator contact and approved policy remain explicit launch configuration.
 
-Profiles support up to six embeds under the profile card. Last.fm profile URLs resolve to the PetraPixel recent-track widget. Spotify track, album and playlist URLs resolve to the Spotify player. Each provider has a fixed frame endpoint and a link to open the content there. The browser loads a sandboxed, no-referrer frame after the visitor chooses to load it. The application validates URLs when saving and rendering and constructs each frame URL from the supported resource identifier.
+Profiles support up to six embeds under the profile card. Last.fm profile URLs resolve to the Snoozeds now-playing widget. The widget uses the profile’s surface, text and accent colours, including custom overrides. Spotify track, album and playlist URLs resolve to the Spotify player. Each provider has a fixed frame endpoint and a link to open the content there. The browser loads a sandboxed, no-referrer frame after the visitor chooses to load it. The application validates URLs when saving and rendering and constructs each frame URL from the supported resource identifier.
 
-The frame policy only permits the configured third-party endpoints. Spotify keeps its own origin for audio preview playback. The Last.fm widget runs with an opaque origin. Both frames restrict top-level navigation, pop-ups and forms.
+The frame policy only permits the configured third-party endpoints. Spotify and Snoozeds keep their own origins for playback and polling respectively. Both frames restrict top-level navigation, pop-ups and forms.
 
 ## Appearance and accessibility
 
