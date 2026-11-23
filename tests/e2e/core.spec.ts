@@ -1,11 +1,23 @@
+import type { Page } from "@playwright/test";
 import { test, expect, account, app, apex, fixture, password, saved, state, publish, observeContext, editorSection } from "./helpers";
+
+async function visitHomepage(page: Page) {
+  // Keep the homepage open until the preview image has finished downloading.
+  const [image] = await Promise.all([
+    page.waitForResponse(response => response.url().startsWith(apex) && /\/_next\/static\/media\/flowers\.[^/]+\.png$/.test(response.url())),
+    page.goto(apex),
+  ]);
+  expect(image.ok()).toBe(true);
+  expect(await image.finished()).toBeNull();
+  await page.evaluate(async () => { await document.fonts.ready; });
+}
 
 test("homepage keeps the requested address through public signup and verification", async ({ page, expectedErrors }, info) => {
   expectedErrors.push(/^Console: Failed to load resource: the server responded with a status of 404.*\[https:\/\/app\.may-be\.localhost\/api\/profile\]$/);
   const username = `${info.project.name}-homepage`;
   const email = `${username}@example.invalid`;
 
-  await page.goto(apex);
+  await visitHomepage(page);
   await expect(page.getByRole("link", { name: "Log in" })).toHaveAttribute("href", `${app}/sign-in`);
   await page.getByRole("textbox", { name: "Username" }).fill(username);
   await page.getByRole("button", { name: "Claim address" }).click();
@@ -33,13 +45,15 @@ test("homepage keeps the requested address through public signup and verificatio
   await page.getByLabel("Password").fill(password);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByRole("textbox", { name: "Username" })).toHaveValue(username);
+  await page.evaluate(async () => { await document.fonts.ready; });
 
-  await page.goto(apex);
+  await visitHomepage(page);
   await page.getByRole("link", { name: "Log in" }).click();
   await expect(page).toHaveURL(`${app}/editor`);
   await expect(page.getByRole("textbox", { name: "Username" })).toBeVisible();
+  await page.evaluate(async () => { await document.fonts.ready; });
 
-  await page.goto(apex);
+  await visitHomepage(page);
   await page.getByRole("textbox", { name: "Username" }).fill(username);
   await page.getByRole("button", { name: "Claim address" }).click();
   await expect(page).toHaveURL(`${app}/editor?username=${username}`);
@@ -57,6 +71,7 @@ test("homepage keeps the requested address through public signup and verificatio
   await page.getByRole("button", { name: "Try this look" }).click();
   await expect(page.locator("main")).toHaveAttribute("data-preset", "sunset");
   await expect(page.locator("main")).toHaveAttribute("data-layout", "split");
+  await page.evaluate(async () => { await document.fonts.ready; });
   await page.goto(`${apex}/privacy`);
   await expect(page.getByRole("navigation", { name: "Policies" }).getByRole("link", { name: "Privacy" })).toHaveAttribute("aria-current", "page");
   await expect(page.getByRole("heading", { name: "What is public" })).toBeVisible();
