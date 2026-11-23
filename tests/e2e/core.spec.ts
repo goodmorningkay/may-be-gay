@@ -68,6 +68,57 @@ test("homepage keeps the requested address through public signup and verificatio
   await expect(page.getByRole("link", { name: "Go to may-be.gay", exact: true })).toHaveAttribute("href", apex);
 });
 
+test("the draft preview centres a short Split card and lets a tall card scroll", async ({ page, context, expectedErrors }, info) => {
+  expectedErrors.push(/^Console: Failed to load resource: the server responded with a status of 404.*\[https:\/\/app\.may-be\.localhost\/api\/profile\]$/);
+  await account(page, `${info.project.name}-layout`);
+  await Promise.all(page.frames().map(frame => frame.evaluate(async () => { await document.fonts.ready; })));
+  const card = page.locator("main header").locator("..");
+  const geometry = () => card.evaluate(async element => {
+    await document.fonts.ready;
+    const { top, bottom } = element.getBoundingClientRect();
+    return {
+      top, bottom, profileTop: element.closest("main")!.getBoundingClientRect().top,
+      width: innerWidth, height: innerHeight, scrollHeight: document.documentElement.scrollHeight,
+    };
+  });
+  const current = await state(context);
+  const saveLayout = async (expectedVersion: number, links = current.document.links) => {
+    const response = await context.request.put(`${app}/api/profile`, {
+      headers: { origin: app, "x-editor-profile": current.profileId },
+      data: { expectedVersion, document: { ...current.document, links, theme: { ...current.document.theme, layout: "split" } } },
+    });
+    expect(response.ok()).toBe(true);
+    return (await response.json()).editVersion as number;
+  };
+
+  await page.goto(`${app}/preview`);
+  const stacked = await geometry();
+  const topPadding = Math.min(78, Math.max(32, stacked.width * 0.04));
+  expect(stacked.top - stacked.profileTop).toBeCloseTo(topPadding, 0);
+
+  const splitVersion = await saveLayout(current.editVersion);
+  await page.reload();
+  const split = await geometry();
+  if (split.width >= 768) {
+    expect(Math.abs(split.top + split.bottom - split.profileTop - split.height)).toBeLessThan(2);
+    expect(split.scrollHeight).toBe(split.height);
+    await expect(page.getByRole("link", { name: "Report this page or get support" })).toBeInViewport();
+  } else {
+    expect(split.top - split.profileTop).toBeCloseTo(topPadding, 0);
+  }
+
+  await saveLayout(splitVersion, Array.from({ length: 18 }, (_, index) => ({
+    id: crypto.randomUUID(), label: `Profile link ${index + 1}`, url: `${apex}/rules`, visible: true,
+  })));
+  await page.reload();
+  const tall = await geometry();
+  expect(tall.top - tall.profileTop).toBeCloseTo(topPadding, 0);
+  expect(tall.bottom).toBeGreaterThan(tall.height);
+  const footerLink = page.getByRole("link", { name: "Report this page or get support" });
+  await footerLink.scrollIntoViewIfNeeded();
+  await expect(footerLink).toBeInViewport();
+});
+
 test("owners edit privately, upload real media, publish and remain isolated", async ({ page, context, browser, expectedErrors }, info) => {
   // Username onboarding intentionally reads a profile before the claim exists.
   expectedErrors.push(/^Console: Failed to load resource: the server responded with a status of 404.*\[https:\/\/app\.may-be\.localhost\/api\/profile\]$/);

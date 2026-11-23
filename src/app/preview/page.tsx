@@ -20,7 +20,7 @@ export default async function Preview() {
   if (!await getSession(requestHeaders)) redirect("/sign-in?returnTo=%2Fpreview");
   const principal = await requireUser(requestHeaders);
   const profile = await getProfilePreview(principal);
-  return <>
+  return <div className={styles.preview}>
     <aside className={`${chrome.page} ${styles.notice}`} aria-label="Private preview">
       <div className={`${chrome.container} ${styles.banner}`}>
         <div className={styles.identity}>
@@ -31,5 +31,5 @@ export default async function Preview() {
       </div>
     </aside>
     <ProfileView document={profile.document} username={profile.username} siteDomain={getSiteDomain()} media={profile.media} />
-  </>;
+  </div>;
 }

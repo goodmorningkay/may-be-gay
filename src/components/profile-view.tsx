@@ -151,14 +151,16 @@ export function ProfileView({
           </div>
         </div>
 
-        <footer className={styles.footer}>
-          <p className={styles.attribution}>
-            A page on <a href={origin}>{siteDomain}</a>
-          </p>
-          <a href={support.href}>
-            Report this page or get support
-          </a>
-        </footer>
+        <div className={styles.footerArea}>
+          <footer className={styles.footer}>
+            <p className={styles.attribution}>
+              A page on <a href={origin}>{siteDomain}</a>
+            </p>
+            <a href={support.href}>
+              Report this page or get support
+            </a>
+          </footer>
+        </div>
       </div>
       {profile.clickToEnter ? <ClickToEnter displayName={profile.displayName} username={username} hasMusic={Boolean(music && profile.music)} /> : null}
     </main>
