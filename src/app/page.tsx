@@ -1,29 +1,22 @@
-import { cache } from "react";
 import type { Metadata } from "next";
-import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { Homepage } from "@/components/homepage/homepage";
 import { ProfileView } from "@/components/profile-view";
-import { getSiteDomain, resolveHost } from "@/domain/hosts";
 import { readClaimUsername, withClaimUsername } from "@/domain/username-intent";
 import { isUsernameClaimed } from "@/server/accounts";
 import { appOrigin } from "@/server/http";
-import { getPublishedProfile } from "@/server/profiles";
+import { readSitePage } from "@/server/site-page";
 import { PublicAnalytics } from "@/components/operations/public-analytics";
 import { reportUrl } from "@/domain/operations";
 
 export const dynamic = "force-dynamic";
 
-// React cache only deduplicates within this request. There is no shared HTML,
-// cross-user or revision cache; a publish/suspension is visible on the next read.
-const readPage = cache(async () => {
-  const domain = getSiteDomain();
-  const host = resolveHost((await headers()).get("host"), domain);
-  if (host.kind === "invalid" || host.kind === "media") notFound();
-  const profile = host.kind === "profile" ? await getPublishedProfile(host.username) : null;
-  if (host.kind === "profile" && !profile) notFound();
-  return { domain, host, profile };
-});
+async function readPage() {
+  const page = await readSitePage();
+  const { host, profile } = page;
+  if (host.kind === "invalid" || host.kind === "media" || (host.kind === "profile" && !profile)) notFound();
+  return page;
+}
 
 export async function generateMetadata(): Promise<Metadata> {
   const { domain, host, profile } = await readPage();
