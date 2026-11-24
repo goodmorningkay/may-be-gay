@@ -3,7 +3,7 @@ import { and, eq, gt, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDatabase, getDatabaseClient } from "@/server/db";
 import { jobs, media } from "@/server/db/schema";
-import { mediaStorage } from "@/server/db/schema-media";
+import { mediaStorage, type MediaObject } from "@/server/db/schema-media";
 import { inputLimit, RESERVATION_MS } from "./limits";
 import { invalidMedia, MediaError } from "./errors";
 import { cleanAssetTemporaries, getMediaStorage, objectKeys, publicObjectKey } from "./storage";
@@ -20,6 +20,10 @@ export const mediaJobPayload = z.discriminatedUnion("action", [
 export const mediaDeletionJobPayload = z.object(locator).strict();
 export const cachePurgeJobPayload = z.object({ ...locator, key: z.string().min(1).max(240) }).strict();
 
+function privateDerivativeBytes(original: MediaObject, display: MediaObject) {
+  return original.bytes + (display.key === original.key ? 0 : display.bytes);
+}
+
 async function enqueueAssets(rows: { id: string; token: string }[], eventId: string, periodic = false) {
   if (!rows.length) return;
   const values = rows.map(({ id: assetId, token }) => ({ kind: "media", idempotencyKey: periodic ? `media:check:${assetId}:${token}` : `media:reconcileAsset:${assetId}:${eventId}`, maxAttempts: 20,
@@ -33,17 +37,28 @@ async function enqueueAssets(rows: { id: string; token: string }[], eventId: str
     set: { state: "pending", attempts: 0, availableAt: new Date(), finishedAt: null, lastErrorCode: null, createdAt: new Date(), updatedAt: new Date() },
     setWhere: sql`${jobs.state} in ('succeeded', 'failed')` });
 }
+const PARSER_LOCK = [740301, 1] as const;
+const SCRATCH_LOCK_CLASS = 740305;
+
 async function processAsset(assetId: string, token: string) {
   const storage = getMediaStorage();
+  const scratchKey = `${assetId}:${token}`;
   const reserved = await getDatabaseClient().reserve();
   let parserLocked = false;
+  let scratchLocked = false;
+  const releaseParserLocks = async () => {
+    if (scratchLocked) {
+      scratchLocked = false;
+      await reserved`select pg_advisory_unlock(${SCRATCH_LOCK_CLASS}, hashtext(${scratchKey}))`.catch(() => {});
+    }
+    if (parserLocked) {
+      parserLocked = false;
+      await reserved`select pg_advisory_unlock(${PARSER_LOCK[0]}, ${PARSER_LOCK[1]})`.catch(() => {});
+    }
+  };
   try {
-    // Session advisory lock on a reserved connection releases on crash or unlock,
-    // and shares the same namespace as pg_advisory_xact_lock(740301, 1).
-    const [locked] = await reserved<{ acquired: boolean }[]>`select pg_try_advisory_lock(740301, 1) as acquired`;
-    if (!locked?.acquired) throw new MediaError(429, "MEDIA_PARSER_BUSY", "Media processing is busy. Try again shortly.");
-    parserLocked = true;
-
+    // Acquire advisory locks AFTER MEDIA_BACKUP_LOCK (lockMediaOwner) to match
+    // backup.ts's lock order (740303 -> 740301 -> 740305) and prevent deadlocks.
     const claimed = await getDatabase().transaction(async tx => {
       const [snapshot] = await tx.select().from(mediaStorage).where(eq(mediaStorage.assetId, assetId));
       if (!snapshot || snapshot.token !== token) return null;
@@ -55,19 +70,34 @@ async function processAsset(assetId: string, token: string) {
         await enqueueMediaDeletion(tx, row);
         return null;
       }
+      const [locked] = await reserved<{ acquired: boolean }[]>`select pg_try_advisory_lock(${PARSER_LOCK[0]}, ${PARSER_LOCK[1]}) as acquired`;
+      if (!locked?.acquired) throw new MediaError(429, "MEDIA_PARSER_BUSY", "Media processing is busy. Try again shortly.");
+      parserLocked = true;
+      const [scratch] = await reserved<{ acquired: boolean }[]>`select pg_try_advisory_lock(${SCRATCH_LOCK_CLASS}, hashtext(${scratchKey})) as acquired`;
+      if (!scratch?.acquired) throw new MediaError(429, "MEDIA_PARSER_BUSY", "Media processing is busy. Try again shortly.");
+      scratchLocked = true;
       await tx.update(media).set({ state: "processing" }).where(eq(media.id, assetId));
       return { ownerId: snapshot.ownerId, kind: row.kind as "image" | "audio" };
     });
     if (!claimed) return;
 
-    await deleteAssetScratch(assetId, token);
     const keys = objectKeys(assetId, token);
     let parsed;
+    let validationRejected = false;
     try {
+      await deleteAssetScratch(assetId, token);
       const quarantine = await storage.get("private", keys.quarantine, inputLimit(claimed.kind));
       parsed = await validateMedia(quarantine, claimed.kind, { assetId, token });
     } catch (error) {
       if (!(error instanceof MediaError) || error.status !== 422) throw error;
+      validationRejected = true;
+    } finally {
+      // Release parser & scratch locks before acquiring MEDIA_BACKUP_LOCK in
+      // Tx 2 so a concurrent snapshot cannot deadlock waiting on PARSER_LOCK.
+      await releaseParserLocks();
+    }
+
+    if (validationRejected) {
       await getDatabase().transaction(async tx => {
         await lockMediaOwner(tx, claimed.ownerId, true);
         const [row] = await tx.select().from(mediaStorage).where(eq(mediaStorage.assetId, assetId)).for("update");
@@ -79,6 +109,7 @@ async function processAsset(assetId: string, token: string) {
       return;
     }
 
+    if (!parsed) return;
     await getDatabase().transaction(async tx => {
       const owner = await lockMediaOwner(tx, claimed.ownerId, true);
       const [row] = await tx.select().from(mediaStorage).where(eq(mediaStorage.assetId, assetId)).for("update");
@@ -91,18 +122,24 @@ async function processAsset(assetId: string, token: string) {
       await cleanAssetTemporaries(storage, row);
       const original = { area: "private" as const, key: row.kind === "image" ? keys.original : keys.audio, bytes: parsed.original.length,
         contentType: parsed.contentType, ...(parsed.width ? { width: parsed.width, height: parsed.height } : {}), ...(parsed.durationMs ? { durationMs: parsed.durationMs } : {}) };
-      const display = row.kind === "image" ? { area: "private" as const, key: keys.display, bytes: parsed.display.length, contentType: parsed.contentType, width: parsed.displayWidth, height: parsed.displayHeight } : original;
-      const privateBytes = row.receivedBytes + original.bytes + (row.kind === "image" ? display.bytes : 0);
+      const display = row.kind === "image" && !parsed.sharedVariants
+        ? { area: "private" as const, key: keys.display, bytes: parsed.display.length, contentType: parsed.contentType, width: parsed.displayWidth, height: parsed.displayHeight }
+        : original;
+      const privateBytes = row.receivedBytes + privateDerivativeBytes(original, display);
       const charge = privateBytes + display.bytes;
       if (charge > row.chargedBytes) throw invalidMedia();
+      // Replace any provisional uncommitted derivatives left by an interrupted
+      // attempt (including across encoder/deploy upgrades producing new bytes).
+      await storage.delete("private", original.key);
+      if (display.key !== original.key) await storage.delete("private", display.key);
       await storage.put("private", original.key, parsed.original, original.contentType);
-      if (row.kind === "image") await storage.put("private", display.key, parsed.display, display.contentType);
+      if (display.key !== original.key) await storage.put("private", display.key, parsed.display, display.contentType);
       await tx.update(mediaStorage).set({ original, display, state: "ready", chargedBytes: charge, privateBytes, publicBudgetBytes: display.bytes, updatedAt: new Date() }).where(eq(mediaStorage.assetId, assetId));
       await tx.update(media).set({ state: "ready", objectKey: original.key, actualBytes: original.bytes, contentType: original.contentType, width: parsed.width ?? null, height: parsed.height ?? null, durationMs: parsed.durationMs ?? null }).where(eq(media.id, assetId));
       await tx.insert(jobs).values({ kind: "media", idempotencyKey: `media:trim:${assetId}`, maxAttempts: 20, payload: { version: 1, action: "trim", assetId, token } }).onConflictDoNothing();
     });
   } finally {
-    if (parserLocked) await reserved`select pg_advisory_unlock(740301, 1)`.catch(() => {});
+    await releaseParserLocks();
     reserved.release();
   }
 }
@@ -127,7 +164,7 @@ async function reconcileAsset(assetId: string, token: string, expireOnly = false
     await cleanAssetTemporaries(storage, row);
     await storage.delete("private", objectKeys(assetId, token).quarantine);
     if (row.original && row.display) {
-      const bytes = row.original.bytes + (row.kind === "image" ? row.display.bytes : 0);
+      const bytes = privateDerivativeBytes(row.original, row.display);
       await tx.update(mediaStorage).set({ privateBytes: bytes, chargedBytes: bytes + row.publicBudgetBytes }).where(eq(mediaStorage.assetId, assetId));
     }
     if (row.revokingKey) { await enqueuePublicPurge(tx, row, row.revokingKey); return; }
@@ -151,7 +188,7 @@ async function trimQuarantine(assetId: string, token: string) {
     const storage = getMediaStorage();
     await cleanAssetTemporaries(storage, row);
     await storage.delete("private", objectKeys(assetId, token).quarantine);
-    const bytes = row.original.bytes + (row.kind === "image" ? row.display.bytes : 0);
+    const bytes = privateDerivativeBytes(row.original, row.display);
     await tx.update(mediaStorage).set({ privateBytes: bytes, chargedBytes: bytes + row.publicBudgetBytes, updatedAt: new Date() }).where(eq(mediaStorage.assetId, assetId));
   });
 }
@@ -190,6 +227,10 @@ export async function processMediaDeletionJob(payload: unknown): Promise<void> {
     const [row] = await tx.select().from(mediaStorage).where(eq(mediaStorage.assetId, data.assetId)).for("update");
     if (!row || row.token !== data.token || row.state !== "deleting") return;
     if (await retainedMedia(tx, row.assetId)) throw new MediaError(409, "MEDIA_RETAINED", "Media is retained by a profile revision.");
+    // Wait/retry if a parser worker still owns scratch files for this asset+token
+    // so the ledger charge is never released while parser scratch exists.
+    const [scratchFree] = await tx.execute<{ acquired: boolean }>(sql`select pg_try_advisory_xact_lock(${SCRATCH_LOCK_CLASS}, hashtext(${`${row.assetId}:${row.token}`})) as acquired`);
+    if (!scratchFree?.acquired) throw new MediaError(429, "MEDIA_PARSER_BUSY", "Media processing is busy. Try again shortly.");
     // If a purge fails, leave the ledger/charge intact and retry these idempotent
     // deletes. A ledger is never forgotten before invalidation succeeds.
     await storage.delete("public", row.publicKey);

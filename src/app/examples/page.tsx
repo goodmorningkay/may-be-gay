@@ -5,6 +5,7 @@ import { ProfileView } from "@/components/profile-view";
 import { getSiteDomain, resolveHost } from "@/domain/hosts";
 import { createExampleProfile, profileDocumentSchema } from "@/domain/profile";
 import { SiteHeader } from "@/components/site-chrome";
+import profileStyles from "@/components/profile-view.module.css";
 import chrome from "@/components/site-chrome.module.css";
 import styles from "../site.module.css";
 
@@ -24,7 +25,7 @@ export default async function Examples({ searchParams }: { searchParams: Promise
   if (!theme.success) notFound();
   example.theme = theme.data;
   example.bio = "I make things, collect small discoveries, and take the long way home.";
-  return <>
+  return <div className={profileStyles.profilePage}>
     <div className={`${chrome.page} ${styles.sampleBar}`}><div className={chrome.container}>
       <SiteHeader><Link href="/" prefetch={false} className={chrome.button}>Back to home</Link></SiteHeader>
       <section className={styles.sampleSettings} aria-labelledby="sample-title">
@@ -40,5 +41,5 @@ export default async function Examples({ searchParams }: { searchParams: Promise
       </section>
     </div></div>
     <ProfileView document={example} username="example" siteDomain={domain} />
-  </>;
+  </div>;
 }

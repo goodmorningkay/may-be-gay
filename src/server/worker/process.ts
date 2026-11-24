@@ -9,7 +9,7 @@ const BUNDLED_ENTRIES = new Map([
 ]);
 
 function resolveEntry(entry: string): string[] {
-  const bundled = BUNDLED_ENTRIES.get(path.resolve(entry));
+  const bundled = process.env.WORKER_USE_BUNDLE === "1" ? BUNDLED_ENTRIES.get(path.resolve(entry)) : undefined;
   if (bundled && existsSync(bundled)) return ["--conditions=react-server", bundled];
   if (/\.[cm]?ts$/.test(entry)) return ["--conditions=react-server", "--import", "tsx", entry];
   return [entry];

@@ -37,6 +37,7 @@ services:
       SERVICE_CLOSED_FILE: /private/service/SERVICE_CLOSED
       NATIVE_PARSER_LOCK_FILE: /private/native/parser.lock
       NEXT_TELEMETRY_DISABLED: '1'
+      WORKER_USE_BUNDLE: '1'
       HOSTNAME: 0.0.0.0
       E2E_FIXTURE: isolated-browser-acceptance
     volumes: &volumes
@@ -74,6 +75,7 @@ services:
       - mobile-b.may-be.localhost:127.0.0.1
       - lifecycle-a.may-be.localhost:127.0.0.1
       - lifecycle-b.may-be.localhost:127.0.0.1
+      - gif-media.may-be.localhost:127.0.0.1
       - unknown.may-be.localhost:127.0.0.1
   browser:
     image: ${E2E_IMAGE}

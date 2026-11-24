@@ -230,7 +230,7 @@ export async function listOwnedMedia(ownerId: string, expectedProfileId?: string
       response: { assets, usage: { chargedBytes: usage.owner, privateBytes: usage.private, publicReservedBytes: usage.publicReserved },
         quota: { limitBytes: quota.mediaLimitBytes, uploadsPaused: settings.uploadsPaused, globalCapacityAvailable: usage.total < settings.totalMediaLimitBytes && usage.privateObjects < MAX_PRIVATE_MEDIA_OBJECTS } },
     };
-  });
+  }, { isolationLevel: "repeatable read", accessMode: "read only" });
   if (result.needsPrune) {
     await getDatabase().transaction(async tx => {
       await lockMediaOwner(tx, ownerId, true);

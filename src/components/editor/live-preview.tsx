@@ -62,6 +62,6 @@ export function LivePreview({ document: profile, username, siteDomain, media, si
     {target ? createPortal(<div onClickCapture={event => {
       const anchor = (event.target as HTMLElement).closest("a");
       if (anchor) { anchor.target = "_blank"; anchor.rel = "noopener noreferrer"; }
-    }}><ProfileView document={profile} username={username} siteDomain={siteDomain} media={media} /></div>, target) : null}
+    }}><ProfileView document={profile} username={username} siteDomain={siteDomain} media={media} livePreview /></div>, target) : null}
   </div>;
 }

@@ -86,6 +86,21 @@ describe("request boundary and security headers", () => {
     }
   });
 
+  it("allowlists only embed endpoints on public profiles and app pages", async () => {
+    vi.stubEnv("SITE_DOMAIN", "may-be.gay");
+    const frameSources = "https://lastfm-embed.vercel.app/api/currently-playing https://open.spotify.com/embed/";
+    for (const [host, path, expected] of [
+      ["alex.may-be.gay", "/", `frame-src ${frameSources}`],
+      ["app.may-be.gay", "/editor", `frame-src ${frameSources}`],
+      ["app.may-be.gay", "/preview", `frame-src ${frameSources}`],
+      ["app.may-be.gay", "/account", `frame-src ${frameSources}`],
+      ["may-be.gay", "/", undefined],
+    ] as const) {
+      const result = await proxy(request(host, path));
+      expect(result.headers.get("content-security-policy")?.split("; ").find(part => part.startsWith("frame-src"))).toBe(expected);
+    }
+  });
+
   it("returns a real 404 before an unknown profile can start an RSC stream", async () => {
     vi.stubEnv("SITE_DOMAIN", "may-be.gay");
     vi.mocked(getPublishedProfile).mockResolvedValue(null);
@@ -113,7 +128,6 @@ describe("request boundary and security headers", () => {
     expect((await proxy(request("alex.may-be.gay", "/api/metrics", {}, "POST"))).status).toBe(200);
     const app = await proxy(request("app.may-be.gay", "/editor"));
     expect(app.headers.get("content-security-policy")).toContain("media-src 'self' https://media.may-be.gay");
-    expect(app.headers.get("content-security-policy")).toContain("frame-src 'self'");
     expect(app.headers.get("x-robots-tag")).toBe("noindex, nofollow");
   });
 });

@@ -2,35 +2,60 @@
 
 # may-be.gay
 
-A free, expressive profile-page service with public signup.
+A free link-in-bio builder for making a personal page at `yourname.may-be.gay`.
+Give your links, interests, and projects a home you can share with one URL.
 
-The local application includes email-verified accounts, a complete profile editor,
-six presets, private media processing, publication history, reporting and
-administration, account export/deletion, durable workers and encrypted recovery.
-Local acceptance and independent review are tracked in the implementation record.
-The service has not been launched; live providers and operator policy still need
-launch configuration.
+## What you can do
 
-To explore the fictional sample without configuring a database:
+- **Claim your address.** Sign up, verify your email, and pick an available username.
+- **Make the page yours.** Add a bio, pronouns, and links. Choose from six themes
+  and two layouts, then customise colours, typography, and backgrounds.
+- **Add images and music.** Upload an avatar, a background, or a music track.
+  Avatars and backgrounds support animated GIFs. You can also embed Spotify
+  tracks, albums, and playlists or show what you're listening to on Last.fm.
+- **Preview and publish.** The editor autosaves a private draft and lets you
+  preview it at phone and desktop sizes. Your public page shows the version you
+  last published. You can unpublish it or restore an earlier version.
+- **Manage your page and account.** See approximate page views and link clicks,
+  enable two-factor authentication, export your data, or delete your account.
+  Visitors can report a page, link, or media item.
+
+## Try a sample locally
+
+With Node.js 22 and npm installed, run the app without a database.
 
 ```sh
 npm ci
 SITE_DOMAIN=may-be.localhost npm run dev
 ```
 
-Open `http://may-be.localhost:3000` and select the profile preview. The sample
-offers six presets, two layouts and three system-font choices; it saves no data.
-Plain `localhost` is deliberately outside the application's hostname policy.
-Links between the apex and app hosts use HTTPS; use the complete stack below
-to exercise those links.
+Open [the sample profile](http://may-be.localhost:3000/examples) to try the themes,
+layouts, and fonts on a fictional page.
 
-For the complete local HTTPS/database stack, see [development setup](docs/development.md).
-Read the [implementation plan](docs/implementation-plan.md),
-[current implementation and review record](docs/non-launch-review.md),
-[database invariants](docs/database.md) and
-[profile renderer contract](docs/profile-renderer.md).
-Account setup is documented in [accounts](docs/accounts.md), worker operation in
-[worker](docs/worker.md), and isolated cross-browser acceptance in
-[browser acceptance](docs/browser-acceptance.md).
+## Run the full app locally
 
-Created in [T3 Code](https://t3.codes).
+Use Docker Compose to try signup, editing, uploads, and publishing over HTTPS.
+
+```sh
+test -f .env || cp .env.example .env
+docker compose up --build -d --wait
+```
+
+The local stack stores verification emails in a file outbox and uploads on disk.
+The [development guide](docs/development.md) covers setup, certificate trust, and tests.
+
+- `https://may-be.localhost` serves the landing page.
+- `https://app.may-be.localhost` serves signup, the editor, and account settings.
+- `https://<username>.may-be.localhost` serves that user's published profile.
+
+## How it works
+
+Next.js serves the site, editor, public profiles, and API from one app. PostgreSQL
+stores accounts, drafts, and published revisions. A background worker processes
+media, sends email, and runs cleanup and backup jobs. Operators can review reports,
+moderate profiles, and manage signup and upload settings.
+
+- **Profiles and publishing** · [Renderer](docs/profile-renderer.md) · [Editor](docs/editor.md) · [Publishing](docs/profiles-editor.md)
+- **Accounts and data** · [Accounts](docs/accounts.md) · [Database](docs/database.md) · [Media](docs/media.md)
+- **Operations and testing** · [Worker](docs/worker.md) · [Runbook](docs/operations-runbook.md) · [Recovery](docs/recovery.md) · [Browser tests](docs/browser-acceptance.md)
+- **Project status** · [Implementation plan](docs/implementation-plan.md) · [Implementation and review record](docs/non-launch-review.md)

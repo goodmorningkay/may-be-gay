@@ -14,7 +14,7 @@ const POLL_DELAYS_MS = [400, 600, 1000, 1500, 2000, 3000];
 const MAX_POLL_ATTEMPTS = 24;
 function pollDelayMs(attempt: number) { return POLL_DELAYS_MS[Math.min(attempt, POLL_DELAYS_MS.length - 1)]; }
 function bytes(value: number) { return `${(value / MiB).toFixed(1)} MiB`; }
-function assetName(asset: MediaList["assets"][number]) { return `${asset.kind === "image" ? "Image" : "MP3"} ${asset.id.slice(0, 8)}${asset.width && asset.height ? ` · ${asset.width} × ${asset.height}` : ""}${asset.durationMs ? ` · ${Math.ceil(asset.durationMs / 1000)}s` : ""}`; }
+function assetName(asset: MediaList["assets"][number]) { return `${asset.kind === "image" ? "Image" : "Audio"} ${asset.id.slice(0, 8)}${asset.width && asset.height ? ` · ${asset.width} × ${asset.height}` : ""}${asset.durationMs ? ` · ${Math.ceil(asset.durationMs / 1000)}s` : ""}`; }
 export function MediaLibrary({ profileId, document: d, errors, disabled, onChange, onMedia }: {
   profileId: string; document: ProfileDocument; errors: FieldErrors; disabled: boolean; onChange: (document: ProfileDocument) => void; onMedia: (map: PublicMediaMap) => void;
 }) {
@@ -139,15 +139,16 @@ export function MediaLibrary({ profileId, document: d, errors, disabled, onChang
       <div className={styles.inlineActions}>
         <label className={`${styles.button} ${styles.upload}`}>
           Upload image
-          <input type="file" accept="image/jpeg,image/png,image/webp" title="JPEG, PNG or WebP, up to 5 MiB and 16 megapixels"
+          <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" title="JPEG, PNG, WebP or GIF" aria-describedby="image-upload-limits"
             disabled={unavailable} onChange={e => { const file = e.target.files?.[0]; e.target.value = ""; void upload(file, "image"); }} />
         </label>
         <label className={`${styles.button} ${styles.upload}`}>
-          Upload MP3
-          <input type="file" accept="audio/mpeg,.mp3" title="MP3, up to 10 MiB and 3 minutes"
+          Upload audio
+          <input type="file" accept="audio/mpeg,audio/wav,audio/x-wav,audio/flac,audio/x-flac,.mp3,.wav,.flac" title="MP3, WAV or FLAC, up to 10 MiB and 3 minutes"
             disabled={unavailable} onChange={e => { const file = e.target.files?.[0]; e.target.value = ""; void upload(file, "audio"); }} />
         </label>
       </div>
+      <p id="image-upload-limits" className={styles.hint}>Images can be up to 5 MiB and 16 megapixels. GIFs can have up to 120 frames, with the pixel limit shared across all frames.</p>
       <p role="status" className={styles.hint}>{notice}</p>
       {list ? <div className={styles.storage}>
         <div className={styles.sectionHeading}><strong>Media storage</strong><span className={styles.rowMeta}>{bytes(list.usage.chargedBytes)} / {bytes(list.quota.limitBytes)}</span></div>

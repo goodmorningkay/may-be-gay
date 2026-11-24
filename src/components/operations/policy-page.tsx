@@ -23,7 +23,8 @@ export async function PolicyPage({ kind }: { kind: "privacy" | "terms" | "rules"
         <h1 className={chrome.heading}>{kind === "privacy" ? "Privacy" : kind === "terms" ? "Terms" : "Rules"}</h1>
         {kind === "privacy" && <>
           {values.privacy && <p>{values.privacy}</p>}
-          <section><h2>What is public</h2><p>Published profile fields, links, and media are public. Your login email and authentication details stay private.</p></section>
+          <section><h2>What is public</h2><p>Published profile fields, links, embeds, and media are public. Your login email and authentication details stay private.</p></section>
+          <section><h2>Music embeds</h2><p>Your browser connects to Snoozeds automatically to display Last.fm embeds. It connects to Spotify when you choose to load a Spotify embed.</p></section>
           <section><h2>Profile analytics</h2><p>We keep 30 days of approximate daily profile views and link clicks. The counts do not measure unique people. Analytics do not store persistent visitor IDs, cookies, IP addresses, user agents, or referrers.</p></section>
           <section><h2>Reports and service records</h2><p>Private report contact and details are removed after 30 days, report records after 90 days, and redacted moderation audit records after 180 days. Minimal recovery records help prevent removed content from returning after a restore. Operational logs are kept briefly for reliability and troubleshooting, and encrypted backups expire automatically on a rolling schedule.</p></section>
           <section><h2>Account export and deletion</h2><p>You can export your account data or request deletion from your account. Requesting deletion ends account access immediately and queues private cleanup. Backup expiry and provider cache cleanup are separate. Copies downloaded by other people cannot be recalled.</p></section>

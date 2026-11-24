@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
 import { allowedMethods, getSiteDomain, resolveHost } from "@/domain/hosts";
+import { profileEmbedFrameSources } from "@/domain/profile-embeds";
 import { getPublishedProfile } from "@/server/profiles";
 import { serviceState } from "@/server/service-state";
 
@@ -11,6 +12,9 @@ export async function proxy(request: NextRequest) {
   const development = process.env.NODE_ENV === "development";
   // Public assets use the one configured media origin, never an authored URL.
   const mediaOrigin = `https://media.${domain}`;
+  // App pages share a policy because client navigation keeps the initial document's CSP.
+  const profileFrames = host.kind === "app" || (host.kind === "profile" && request.nextUrl.pathname === "/");
+  // The inline editor preview uses a fixed srcdoc. Network frames can only use provider endpoints.
   // The homepage's username form redirects from the apex to signup.
   const signupTarget = host.kind === "apex" && request.nextUrl.pathname === "/" ? ` https://app.${domain}/sign-up` : "";
   const csp = [
@@ -20,7 +24,7 @@ export async function proxy(request: NextRequest) {
     `img-src 'self' ${mediaOrigin}`,
     `media-src 'self' ${mediaOrigin}`,
     "font-src 'self'",
-    ...(host.kind === "app" ? ["frame-src 'self'"] : []),
+    ...(profileFrames ? [`frame-src ${profileEmbedFrameSources.join(" ")}`] : []),
     `connect-src 'self'${development ? " ws: wss:" : ""}`,
     "base-uri 'none'", "object-src 'none'", "frame-ancestors 'none'", `form-action 'self'${signupTarget}`,
     ...(domain === "may-be.gay" && !development ? ["upgrade-insecure-requests"] : []),
