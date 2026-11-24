@@ -4,11 +4,11 @@ import { z } from "zod";
 import { getDatabase, getDatabaseClient } from "@/server/db";
 import { jobs, media } from "@/server/db/schema";
 import { mediaStorage, type MediaObject } from "@/server/db/schema-media";
-import { inputLimit, RESERVATION_MS } from "./limits";
+import { DISPLAY_BYTES, IMAGE_BYTES, inputLimit, RESERVATION_MS } from "./limits";
 import { invalidMedia, MediaError } from "./errors";
 import { cleanAssetTemporaries, getMediaStorage, objectKeys, publicObjectKey } from "./storage";
 import { getMediaPurge } from "./purge";
-import { deleteAssetScratch, sweepMediaScratch, validateMedia } from "./validation";
+import { deleteAssetScratch, sweepMediaScratch, validateMedia, validateStoredWebp } from "./validation";
 import { activePublication, assetIdSchema, enqueueMediaDeletion, enqueuePublicPurge, lockMediaOwner, pruneMediaFeedback, retainedMedia } from "./service";
 
 const locator = { version: z.literal(1), assetId: assetIdSchema, token: z.string().uuid() };
@@ -88,6 +88,24 @@ async function processAsset(assetId: string, token: string) {
       await deleteAssetScratch(assetId, token);
       const quarantine = await storage.get("private", keys.quarantine, inputLimit(claimed.kind));
       parsed = await validateMedia(quarantine, claimed.kind, { assetId, token });
+      // Keep derivative keys strictly immutable across retries and encoder
+      // deployments (never DELETE a key a retry may commit). If a prior attempt
+      // already wrote a valid WebP at an immutable key, verify and adopt it.
+      if (claimed.kind === "image" && await storage.exists("private", keys.original)) {
+        const existingOriginal = await storage.get("private", keys.original, IMAGE_BYTES);
+        if (!existingOriginal.equals(parsed.original)) {
+          await validateStoredWebp(existingOriginal, { assetId, token });
+          const keepShared = parsed.sharedVariants && existingOriginal.length <= DISPLAY_BYTES;
+          parsed = { ...parsed, original: existingOriginal, display: keepShared ? existingOriginal : parsed.display, ...(keepShared ? { sharedVariants: true as const } : { sharedVariants: undefined }) };
+        }
+      }
+      if (claimed.kind === "image" && !parsed.sharedVariants && await storage.exists("private", keys.display)) {
+        const existingDisplay = await storage.get("private", keys.display, DISPLAY_BYTES);
+        if (!existingDisplay.equals(parsed.display)) {
+          await validateStoredWebp(existingDisplay, { assetId, token });
+          parsed = { ...parsed, display: existingDisplay };
+        }
+      }
     } catch (error) {
       if (!(error instanceof MediaError) || error.status !== 422) throw error;
       validationRejected = true;
@@ -128,10 +146,6 @@ async function processAsset(assetId: string, token: string) {
       const privateBytes = row.receivedBytes + privateDerivativeBytes(original, display);
       const charge = privateBytes + display.bytes;
       if (charge > row.chargedBytes) throw invalidMedia();
-      // Replace any provisional uncommitted derivatives left by an interrupted
-      // attempt (including across encoder/deploy upgrades producing new bytes).
-      await storage.delete("private", original.key);
-      if (display.key !== original.key) await storage.delete("private", display.key);
       await storage.put("private", original.key, parsed.original, original.contentType);
       if (display.key !== original.key) await storage.put("private", display.key, parsed.display, display.contentType);
       await tx.update(mediaStorage).set({ original, display, state: "ready", chargedBytes: charge, privateBytes, publicBudgetBytes: display.bytes, updatedAt: new Date() }).where(eq(mediaStorage.assetId, assetId));
@@ -162,8 +176,12 @@ async function reconcileAsset(assetId: string, token: string, expireOnly = false
     // Includes final-object-exists retries and live publications: interrupted
     // locator temporaries must disappear before a peak reservation is released.
     await cleanAssetTemporaries(storage, row);
-    await storage.delete("private", objectKeys(assetId, token).quarantine);
+    const keys = objectKeys(assetId, token);
+    await storage.delete("private", keys.quarantine);
     if (row.original && row.display) {
+      // If a shared-variant commit succeeded after a prior attempt left a
+      // separate display.webp, remove the obsolete display before reducing charge.
+      if (row.kind === "image" && row.display.key === row.original.key) await storage.delete("private", keys.display);
       const bytes = privateDerivativeBytes(row.original, row.display);
       await tx.update(mediaStorage).set({ privateBytes: bytes, chargedBytes: bytes + row.publicBudgetBytes }).where(eq(mediaStorage.assetId, assetId));
     }
@@ -186,8 +204,10 @@ async function trimQuarantine(assetId: string, token: string) {
     const [row] = await tx.select().from(mediaStorage).where(eq(mediaStorage.assetId, assetId)).for("update");
     if (!row || row.state !== "ready" || !row.original || !row.display) return;
     const storage = getMediaStorage();
+    const keys = objectKeys(assetId, token);
     await cleanAssetTemporaries(storage, row);
-    await storage.delete("private", objectKeys(assetId, token).quarantine);
+    await storage.delete("private", keys.quarantine);
+    if (row.kind === "image" && row.display.key === row.original.key) await storage.delete("private", keys.display);
     const bytes = privateDerivativeBytes(row.original, row.display);
     await tx.update(mediaStorage).set({ privateBytes: bytes, chargedBytes: bytes + row.publicBudgetBytes, updatedAt: new Date() }).where(eq(mediaStorage.assetId, assetId));
   });

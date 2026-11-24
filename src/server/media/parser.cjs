@@ -156,11 +156,13 @@ async function animationVariants(data, input) {
   return [original, display];
 }
 async function stillVariants(data, options) {
-  const full = await encodeWebp(data, options, 4096, { quality: 85, effort: 1 });
+  let full = await encodeWebp(data, options, 4096, { quality: 85, effort: 1 });
+  if (full.data.length > 5 * MiB) full = await encodeWebp(data, options, 4096, { quality: 85, effort: 3 });
   if (full.data.length > 5 * MiB) fail();
-  const small = full.info.width <= 1600 && full.info.height <= 1600 && full.data.length <= MiB
+  let small = full.info.width <= 1600 && full.info.height <= 1600 && full.data.length <= MiB
     ? { ...full }
     : await encodeWebp(data, options, 1600, { quality: 80, effort: 1 });
+  if (small.data.length > MiB) small = await encodeWebp(data, options, 1600, { quality: 80, effort: 3 });
   if (small.data.length > MiB) fail();
   return [full, small];
 }

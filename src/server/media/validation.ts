@@ -98,9 +98,9 @@ export async function validateMedia(data: Buffer, kind: MediaKind | "mp3", locat
   });
 }
 
-/** Recovery-only validation for WebP derivatives already produced by the parser. */
-export async function validateStoredWebp(data: Buffer) {
-  const result = await withParserInput(data, IMAGE_BYTES, undefined, input => runParser("stored-webp", input));
+/** Recovery and retry validation for WebP derivatives already produced by the parser. */
+export async function validateStoredWebp(data: Buffer, locator?: ScratchLocator) {
+  const result = await withParserInput(data, IMAGE_BYTES, locator, input => runParser("stored-webp", input));
   if (result !== "ok") throw invalidMedia();
 }
 

@@ -355,31 +355,58 @@ describe.skipIf(!testUrl)("media PostgreSQL ownership, quota and distributed tra
       return originalGet.call(this, area, key, maxBytes);
     });
     const processing = processMediaJob({ version: 1, action: "process", assetId: row.assetId, token: row.token });
-    await entered.promise;
     const conn = await harness.client.reserve();
+    let backupLocked = false;
+    let parserLocked = false;
     try {
+      await entered.promise;
       await conn`set lock_timeout='5s'`;
       // Exact lock order used by backup.ts: MEDIA_BACKUP_LOCK (740303,1) then PARSER_LOCK (740301,1).
       const [{ acquired }] = await conn<{ acquired: boolean }[]>`select pg_try_advisory_lock(740303, 1) as acquired`;
       expect(acquired).toBe(true);
+      backupLocked = true;
       const snapshotWaiting = conn`select pg_advisory_lock(740301, 1)`;
       release.resolve();
       await snapshotWaiting;
-      await conn`select pg_advisory_unlock(740301, 1)`;
-      await conn`select pg_advisory_unlock(740303, 1)`;
-    } finally { conn.release(); spy.mockRestore(); }
-    await processing;
+      parserLocked = true;
+    } finally {
+      release.resolve();
+      if (parserLocked) await conn`select pg_advisory_unlock(740301, 1)`.catch(() => {});
+      if (backupLocked) await conn`select pg_advisory_unlock(740303, 1)`.catch(() => {});
+      conn.release();
+      spy.mockRestore();
+      await processing;
+    }
     const [done] = await harness.db.select().from(mediaStorage).where(eq(mediaStorage.assetId, row.assetId));
     expect(done.state).toBe("ready");
   });
-  it("replaces provisional uncommitted derivatives on retry even when encoder bytes change", async () => {
+  it("adopts a valid pre-existing derivative on cross-deploy retry without issuing a delete", async () => {
     const a = await owner(), asset = await upload(a.id), [row] = await harness.db.select().from(mediaStorage).where(eq(mediaStorage.assetId, asset.id));
     const keys = objectKeys(row.assetId, row.token);
-    await getMediaStorage().put("private", keys.original, Buffer.from("old-encoder-provisional-bytes"), "image/webp");
-    await processMediaJob({ version: 1, action: "process", assetId: row.assetId, token: row.token });
+    // Simulate an interrupted prior encoder that wrote a different valid WebP at original.webp.
+    const priorOriginal = await sharp(fixture).webp({ quality: 70, effort: 3 }).toBuffer();
+    await getMediaStorage().put("private", keys.original, priorOriginal, "image/webp");
+    const deleteSpy = vi.spyOn(LocalMediaStorage.prototype, "delete");
+    try {
+      await processMediaJob({ version: 1, action: "process", assetId: row.assetId, token: row.token });
+      expect(deleteSpy).not.toHaveBeenCalled();
+    } finally { deleteSpy.mockRestore(); }
     const [done] = await harness.db.select().from(mediaStorage).where(eq(mediaStorage.assetId, row.assetId));
     expect(done.state).toBe("ready");
-    expect(done.original?.bytes).not.toBe(Buffer.byteLength("old-encoder-provisional-bytes"));
+    expect(done.original?.bytes).toBe(priorOriginal.length);
+  });
+  it("removes an obsolete display.webp during trim when a shared-variant commit succeeds", async () => {
+    const a = await owner(), asset = await upload(a.id), [row] = await harness.db.select().from(mediaStorage).where(eq(mediaStorage.assetId, asset.id));
+    const keys = objectKeys(row.assetId, row.token);
+    const body = await sharp(fixture).webp({ quality: 80, effort: 1 }).toBuffer();
+    await getMediaStorage().put("private", keys.original, body, "image/webp");
+    await getMediaStorage().put("private", keys.display, body, "image/webp");
+    const shared = { area: "private" as const, key: keys.original, bytes: body.length, contentType: "image/webp" as const, width: 16, height: 16 };
+    await harness.db.update(mediaStorage).set({ state: "ready", original: shared, display: shared, publicBudgetBytes: body.length }).where(eq(mediaStorage.assetId, row.assetId));
+    await processMediaJob({ version: 1, action: "trim", assetId: row.assetId, token: row.token });
+    expect(await getMediaStorage().exists("private", keys.display)).toBe(false);
+    const [trimmed] = await harness.db.select().from(mediaStorage).where(eq(mediaStorage.assetId, row.assetId));
+    expect(trimmed.privateBytes).toBe(body.length);
   });
   it("defers physical deletion while parser scratch lock is active for that asset and token", async () => {
     const a = await owner(), asset = await upload(a.id), [row] = await harness.db.select().from(mediaStorage).where(eq(mediaStorage.assetId, asset.id));
