@@ -1,0 +1,26 @@
+.player { min-width: 0; padding: 13px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--ink); text-align: start; }
+.player audio { display: block; width: 100%; min-width: 0; }
+.player[data-enhanced="true"] audio { display: none; }
+.controls[hidden] { display: none; }
+.titleRow, .timeline { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.title { display: block; min-width: 0; font-size: 14px; line-height: 1.35; overflow-wrap: anywhere; white-space: pre-wrap; }
+.play, .volume { display: grid; place-items: center; border: 0; cursor: pointer; padding: 0; }
+.play { width: 44px; height: 44px; flex: 0 0 44px; border-radius: 50%; color: var(--surface); background: var(--ink); }
+.play::before, .volume::before { content: ""; width: 18px; height: 18px; background: currentColor; }
+.play::before { mask: url("./profile-assets/profile-play.svg") center no-repeat; }
+.play[data-playing]::before { mask-image: url("./profile-assets/profile-pause.svg"); }
+.timeline { gap: 7px; margin-top: 8px; padding: 0 8px; border-radius: 7px; color: var(--muted); background: var(--background); font: 11px/1.2 var(--mono-font); }
+.timeline span { flex: none; }
+.timeline input { flex: 1; min-width: 0; min-height: 44px; margin: 0; accent-color: var(--accent); cursor: pointer; }
+.timeline input:disabled { cursor: default; }
+.volume { width: 28px; height: 44px; flex: 0 0 28px; background: none; color: var(--ink); }
+.volume::before { mask: url("./profile-assets/profile-volume.svg") center no-repeat; }
+.volume[aria-pressed="true"] { opacity: .58; }
+.timeline .volumeSlider { flex: 0 1 40px; }
+.controls :is(button, input):focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+.attribution, .status { margin: 8px 0 0; overflow-wrap: anywhere; white-space: pre-wrap; color: var(--muted); font-size: 12px; }
+.status:empty { display: none; }
+@media (forced-colors: active) {
+  .player, .controls button { border: 1px solid ButtonText; }
+  .play::before, .volume::before { forced-color-adjust: none; color: ButtonText; }
+}

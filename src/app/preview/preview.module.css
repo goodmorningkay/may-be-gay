@@ -1,0 +1,10 @@
+.notice { min-height: 0; border-bottom: 1px solid var(--border-subtle); }
+.banner, .identity { display: flex; align-items: center; gap: 12px; }
+.banner { min-height: 86px; justify-content: space-between; }
+.identity strong { display: block; font: 700 25px/1.1 var(--display-font); letter-spacing: -.04em; }
+.identity p { margin: 4px 0 0; color: var(--text-secondary); font-size: 13px; }
+.lock { display: inline-block; flex: 0 0 44px; height: 44px; border: 1px solid var(--border-control); border-radius: var(--control-radius); background: url("../../components/profile-assets/private.svg") center no-repeat var(--control); }
+@media (max-width: 54rem) {
+  .banner { display: grid; padding-block: 15px; }
+  .identity strong { font-size: 22px; }
+}

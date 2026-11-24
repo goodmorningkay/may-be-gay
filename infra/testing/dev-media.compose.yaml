@@ -1,0 +1,18 @@
+# Disposable acceptance override, used with compose.yaml and compose.dev.yaml.
+# Start only app and worker (plus their DB/migration dependencies): no host ports.
+services:
+  db:
+    environment:
+      POSTGRES_DB: dev_media_test
+  migrate:
+    environment:
+      MIGRATION_DATABASE_URL: postgres://may_be_migrator:local-only-migrator@db:5432/dev_media_test
+  app:
+    environment:
+      DATABASE_URL: postgres://may_be_app:local-only-app@db:5432/dev_media_test
+      MAIL_ALLOW_LIVE: "false"
+  worker:
+    environment:
+      DATABASE_URL: postgres://may_be_app:local-only-app@db:5432/dev_media_test
+      MAIL_ALLOW_LIVE: "false"
+      DEV_MEDIA_FIXTURE: isolated-development-media

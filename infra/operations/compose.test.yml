@@ -1,0 +1,18 @@
+services:
+  db:
+    image: postgres:17.11-bookworm@sha256:665dc7b37ac52a17e298511414c21d23ffa4e6a6ef6225b3e5d59c7afb35e994
+    environment:
+      POSTGRES_USER: worker_fixture
+      POSTGRES_PASSWORD: worker_local_dummy
+      POSTGRES_DB: worker_test
+    ports:
+      - "127.0.0.1:55439:5432"
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -h 127.0.0.1 -U worker_fixture -d worker_test"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    volumes:
+      - /tmp/may-be-worker-fixture:/tmp/may-be-worker-fixture
+    tmpfs:
+      - /var/lib/postgresql/data

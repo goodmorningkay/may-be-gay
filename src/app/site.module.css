@@ -1,0 +1,12 @@
+.sampleBar { min-height: 0; }
+.sampleSettings { display: flex; gap: 22px; align-items: end; justify-content: space-between; padding: 28px 0 24px; }
+.sampleSettings h2 { margin: 0; font: 700 clamp(28px, 3vw, 36px)/1.1 var(--display-font); letter-spacing: -.045em; }
+.sampleSettings p { margin: 4px 0 0; color: var(--text-secondary); }
+.controls { display: grid; grid-template-columns: repeat(3, minmax(105px, 130px)) auto; align-items: end; gap: 10px; }
+.missingPage { min-height: 100svh; display: grid; grid-template-rows: auto 1fr auto; }
+.missing { display: grid; align-content: center; justify-items: center; gap: 17px; padding-block: 54px; text-align: center; }
+.missing :is(p, span) { color: var(--text-secondary); margin: 0; }
+@media (max-width: 54rem) {
+  .sampleSettings { display: grid; grid-template-columns: minmax(0, 1fr); gap: 15px; padding-block: 20px; }
+  .controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

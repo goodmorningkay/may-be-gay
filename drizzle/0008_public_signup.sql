@@ -1,0 +1,1 @@
+ALTER TABLE "service_settings" ALTER COLUMN "registration_mode" SET DEFAULT 'public';
