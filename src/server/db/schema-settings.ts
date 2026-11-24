@@ -3,12 +3,15 @@ import { bigint, boolean, check, integer, pgTable, text, timestamp } from "drizz
 import { defaultRegistrationMode, registrationModes } from "../../domain/registration";
 import { user } from "./schema";
 
+export const DEFAULT_TOTAL_MEDIA_LIMIT_BYTES = 5 * 1024 ** 3;
+export const DEFAULT_ACCOUNT_MEDIA_LIMIT_BYTES = 100 * 1024 ** 2;
+
 export const serviceSettings = pgTable("service_settings", {
   id: boolean("id").primaryKey().default(true),
   registrationMode: text("registration_mode", { enum: registrationModes }).notNull().default(defaultRegistrationMode),
   uploadsPaused: boolean("uploads_paused").notNull().default(false),
   accountLimit: integer("account_limit"),
-  totalMediaLimitBytes: bigint("total_media_limit_bytes", { mode: "number" }).notNull().default(5 * 1024 ** 3),
+  totalMediaLimitBytes: bigint("total_media_limit_bytes", { mode: "number" }).notNull().default(DEFAULT_TOTAL_MEDIA_LIMIT_BYTES),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, t => [
   check("service_settings_singleton", sql`${t.id} = true`),
@@ -19,6 +22,6 @@ export const serviceSettings = pgTable("service_settings", {
 
 export const accountQuotas = pgTable("account_quotas", {
   userId: text("user_id").primaryKey().references(() => user.id, { onDelete: "cascade" }),
-  mediaLimitBytes: bigint("media_limit_bytes", { mode: "number" }).notNull().default(100 * 1024 ** 2),
+  mediaLimitBytes: bigint("media_limit_bytes", { mode: "number" }).notNull().default(DEFAULT_ACCOUNT_MEDIA_LIMIT_BYTES),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, t => [check("account_quota_limit", sql`${t.mediaLimitBytes} BETWEEN 0 AND 1099511627776`)]);

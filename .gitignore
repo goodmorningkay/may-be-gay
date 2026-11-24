@@ -10,6 +10,7 @@ coverage/
 .DS_Store
 .local/
 .native/
+.worker/
 playwright-report/
 test-results/
 *.pem

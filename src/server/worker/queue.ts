@@ -4,7 +4,7 @@ import { requireDatabaseUrl } from "../db/connection-options";
 export type Claim = { id: string; kind: string; payload: unknown; payload_version: number; attempts: number; max_attempts: number; locked_by: string; created_at: Date };
 export const LEASE_MS = 90_000;
 export function workerConnection(url = process.env.DATABASE_URL) {
-  return postgres(requireDatabaseUrl(url, "DATABASE_URL"), { max: 2, connect_timeout: 5, onnotice: () => {}, connection: { application_name: "may-be-worker", statement_timeout: 10000 } });
+  return postgres(requireDatabaseUrl(url, "DATABASE_URL"), { max: 3, connect_timeout: 5, onnotice: () => {}, connection: { application_name: "may-be-worker", statement_timeout: 10000 } });
 }
 export type WorkerSql = ReturnType<typeof workerConnection>;
 export class Queue {

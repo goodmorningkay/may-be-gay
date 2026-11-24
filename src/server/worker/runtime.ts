@@ -57,15 +57,46 @@ export async function runWorker(queue: Queue, signal: AbortSignal, once = false)
   };
   if (!once) void archives();
   const archiveTimer = once ? undefined : setInterval(() => { void archives(); }, 10000);
+  let wakeResolve: (() => void) | undefined;
+  let notified = false;
+  const wake = () => {
+    notified = true;
+    const resolve = wakeResolve;
+    wakeResolve = undefined;
+    resolve?.();
+  };
+  let listener: { unlisten: () => Promise<void> } | undefined;
+  if (!once && typeof queue.sql.listen === "function") {
+    listener = await queue.sql.listen("may_be_jobs", wake).catch(() => undefined);
+  }
+  const waitIdle = async () => {
+    if (notified || signal.aborted) { notified = false; return; }
+    await new Promise<void>(resolve => {
+      let done = false;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        clearTimeout(idleTimer);
+        signal.removeEventListener("abort", finish);
+        if (wakeResolve === finish) wakeResolve = undefined;
+        resolve();
+      };
+      wakeResolve = finish;
+      const idleTimer = setTimeout(finish, 500);
+      signal.addEventListener("abort", finish, { once: true });
+    });
+    notified = false;
+  };
   try {
     do {
       await queue.reclaim();
-      const claim = await queue.claim(++ticks % 4 === 0);
+      const claim = await queue.claim(++ticks % 8 === 0);
       if (claim) await executeClaim(queue, claim, signal);
-      else if (!once) await pause(500, undefined, { signal }).catch(() => {});
+      else if (!once) await waitIdle();
     } while (!signal.aborted && !once);
   } finally {
     clearInterval(timer); clearInterval(archiveTimer);
+    await listener?.unlisten().catch(() => {});
     while (maintaining || archiving) await pause(50);
     await queue.sql`delete from worker_heartbeats where id=${id}`;
   }

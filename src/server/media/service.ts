@@ -8,7 +8,7 @@ import { getDatabase } from "@/server/db";
 import type { Transaction } from "@/server/db/types";
 import { lockMediaForBackupConsistency } from "@/server/db/maintenance-lock";
 import { draftMedia, jobs, media, revisionMedia, user } from "@/server/db/schema";
-import { accountQuotas, serviceSettings } from "@/server/db/schema-settings";
+import { accountQuotas, DEFAULT_ACCOUNT_MEDIA_LIMIT_BYTES, DEFAULT_TOTAL_MEDIA_LIMIT_BYTES, serviceSettings } from "@/server/db/schema-settings";
 import { mediaStorage, type MediaObject } from "@/server/db/schema-media";
 import { capacity, invalidMedia, MediaError, storageFailure } from "./errors";
 import { MAX_ASSETS, MAX_REJECTION_FEEDBACK, RESERVATION_MS, reservationBytes, privateObjectSlots, type MediaKind } from "./limits";
@@ -51,6 +51,7 @@ async function enqueue(tx: Transaction, kind: "media" | "media_deletion" | "cach
   // Payloads intentionally have no owner FK. Hard account deletion cannot discard
   // the storage cleanup locator, and ON CONFLICT makes repeated enqueue safe.
   await tx.insert(jobs).values({ kind, idempotencyKey: key, payloadVersion: 1, payload, availableAt, maxAttempts: 20 }).onConflictDoNothing();
+  if (availableAt.getTime() <= Date.now()) await tx.execute(sql`select pg_notify('may_be_jobs', '')`);
 }
 export async function enqueueMediaReconciliation(tx: Transaction, ownerId: string): Promise<void> {
   const [row] = await tx.execute<{ id: string }>(sql`select txid_current()::text as id`);
@@ -207,21 +208,36 @@ export async function pruneMediaFeedback(tx: Transaction, ownerId: string) {
   if (obsolete.length) await tx.delete(media).where(inArray(media.id, obsolete.map(row => row.id)));
 }
 export async function listOwnedMedia(ownerId: string, expectedProfileId?: string) {
-  return getDatabase().transaction(async tx => {
-    await lockMediaOwner(tx, ownerId);
-    await checkMediaEditor(tx, ownerId, expectedProfileId);
-    await pruneMediaFeedback(tx, ownerId);
-    const { settings, quota } = await lockMediaCapacity(tx, ownerId), usage = await mediaUsage(tx, ownerId);
+  const result = await getDatabase().transaction(async tx => {
+    const [owner] = await tx.select().from(user).where(eq(user.id, ownerId));
+    if (!owner || owner.deletedAt || owner.suspendedAt || !owner.emailVerified) throw new MediaError(403, "ACCOUNT_UNAVAILABLE", "An active verified account is required.");
+    await checkMediaEditor(tx, ownerId, expectedProfileId, false);
+    const [settingsRow] = await tx.select().from(serviceSettings).where(eq(serviceSettings.id, true));
+    const [quotaRow] = await tx.select().from(accountQuotas).where(eq(accountQuotas.userId, ownerId));
+    const settings = settingsRow ?? { uploadsPaused: false, totalMediaLimitBytes: DEFAULT_TOTAL_MEDIA_LIMIT_BYTES };
+    const quota = quotaRow ?? { mediaLimitBytes: DEFAULT_ACCOUNT_MEDIA_LIMIT_BYTES };
+    const usage = await mediaUsage(tx, ownerId);
     const fields = { id: media.id, kind: media.kind, state: media.state, contentType: media.contentType, bytes: media.actualBytes,
       width: media.width, height: media.height, durationMs: media.durationMs, createdAt: media.createdAt };
     const usable = await tx.select(fields).from(media).innerJoin(mediaStorage, eq(mediaStorage.assetId, media.id))
       .where(and(eq(media.ownerId, ownerId), ne(media.state, "rejected"), isNull(media.deletedAt))).orderBy(media.createdAt, media.id);
     const feedback = await tx.select(fields).from(media).where(and(eq(media.ownerId, ownerId), eq(media.state, "rejected"), isNull(media.deletedAt)))
-      .orderBy(desc(media.createdAt), desc(media.id)).limit(MAX_REJECTION_FEEDBACK);
-    const assets = [...usable, ...feedback];
-    return { assets, usage: { chargedBytes: usage.owner, privateBytes: usage.private, publicReservedBytes: usage.publicReserved },
-      quota: { limitBytes: quota.mediaLimitBytes, uploadsPaused: settings.uploadsPaused, globalCapacityAvailable: usage.total < settings.totalMediaLimitBytes && usage.privateObjects < MAX_PRIVATE_MEDIA_OBJECTS } };
+      .orderBy(desc(media.createdAt), desc(media.id)).limit(MAX_REJECTION_FEEDBACK + 1);
+    const needsPrune = feedback.length > MAX_REJECTION_FEEDBACK;
+    const assets = [...usable, ...(needsPrune ? feedback.slice(0, MAX_REJECTION_FEEDBACK) : feedback)];
+    return {
+      needsPrune,
+      response: { assets, usage: { chargedBytes: usage.owner, privateBytes: usage.private, publicReservedBytes: usage.publicReserved },
+        quota: { limitBytes: quota.mediaLimitBytes, uploadsPaused: settings.uploadsPaused, globalCapacityAvailable: usage.total < settings.totalMediaLimitBytes && usage.privateObjects < MAX_PRIVATE_MEDIA_OBJECTS } },
+    };
   });
+  if (result.needsPrune) {
+    await getDatabase().transaction(async tx => {
+      await lockMediaOwner(tx, ownerId, true);
+      await pruneMediaFeedback(tx, ownerId);
+    });
+  }
+  return result.response;
 }
 export async function readPrivateContent(ownerId: string, assetId: string) {
   if (!assetIdSchema.safeParse(assetId).success) throw new MediaError(404, "MEDIA_NOT_FOUND", "Media asset not found.");

@@ -21,6 +21,12 @@ export function getDatabase() {
   return databaseGlobal.__mayBeGayDatabase.db;
 }
 
+/** Underlying postgres.js client for session-scoped operations such as advisory locks. */
+export function getDatabaseClient() {
+  databaseGlobal.__mayBeGayDatabase ??= connect();
+  return databaseGlobal.__mayBeGayDatabase.client;
+}
+
 /** For graceful worker shutdown and isolated integration tests. */
 export async function closeDatabase(): Promise<void> {
   const current = databaseGlobal.__mayBeGayDatabase;

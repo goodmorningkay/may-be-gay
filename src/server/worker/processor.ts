@@ -1,6 +1,3 @@
-import { processEmailJob } from "../mail";
-import { processMediaJob, processMediaDeletionJob, processCachePurgeJob } from "../media/jobs";
-import { processAccountDeletionJob } from "../operations/deletion";
 import { closeDatabase } from "../db";
 import { failureCode } from "./errors";
 import { workerConnection, type Claim } from "./queue";
@@ -8,6 +5,7 @@ export async function dispatch(c: Claim) {
   if (c.payload_version !== 1) throw Object.assign(new Error(), { name: "ZodError" });
   switch (c.kind) {
     case "email": {
+      const { processEmailJob } = await import("../mail");
       const sql = workerConnection();
       try {
         const [live] = await sql`select id from jobs where id=${c.id} and state='running' and locked_by=${c.locked_by} and attempts=${c.attempts}`;
@@ -15,10 +13,22 @@ export async function dispatch(c: Claim) {
         return await processEmailJob({ id: c.id, payload: c.payload });
       } finally { await sql.end({ timeout: 0 }); }
     }
-    case "media": return processMediaJob(c.payload);
-    case "media_deletion": return processMediaDeletionJob(c.payload);
-    case "cache_purge": return processCachePurgeJob(c.payload);
-    case "account_deletion": return processAccountDeletionJob(c.payload);
+    case "media": {
+      const { processMediaJob } = await import("../media/jobs");
+      return processMediaJob(c.payload);
+    }
+    case "media_deletion": {
+      const { processMediaDeletionJob } = await import("../media/jobs");
+      return processMediaDeletionJob(c.payload);
+    }
+    case "cache_purge": {
+      const { processCachePurgeJob } = await import("../media/jobs");
+      return processCachePurgeJob(c.payload);
+    }
+    case "account_deletion": {
+      const { processAccountDeletionJob } = await import("../operations/deletion");
+      return processAccountDeletionJob(c.payload);
+    }
     default: throw Object.assign(new Error(), { name: "ZodError" });
   }
 }

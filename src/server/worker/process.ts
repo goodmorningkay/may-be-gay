@@ -1,12 +1,26 @@
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { cancelSupervised, spawnSupervised } from "../subprocess/supervised";
 import type { Claim } from "./queue";
+
+const BUNDLED_ENTRIES = new Map([
+  [path.resolve("src/server/worker/processor.ts"), path.resolve(".worker/processor.mjs")],
+  [path.resolve("src/server/worker/maintenance-child.ts"), path.resolve(".worker/maintenance-child.mjs")],
+]);
+
+function resolveEntry(entry: string): string[] {
+  const bundled = BUNDLED_ENTRIES.get(path.resolve(entry));
+  if (bundled && existsSync(bundled)) return ["--conditions=react-server", bundled];
+  if (/\.[cm]?ts$/.test(entry)) return ["--conditions=react-server", "--import", "tsx", entry];
+  return [entry];
+}
+
 export function runProcessor(claim: Claim, signal: AbortSignal, timeoutMs = 60_000, entry = path.resolve("src/server/worker/processor.ts")): Promise<string | undefined> {
   if (signal.aborted) return Promise.resolve("LEASE_LOST_OR_SHUTDOWN");
   return new Promise(resolve => {
     let child: ReturnType<typeof spawnSupervised>;
     try {
-      child = spawnSupervised(process.execPath, ["--conditions=react-server", "--import", "tsx", entry], timeoutMs, {
+      child = spawnSupervised(process.execPath, resolveEntry(entry), timeoutMs, {
         stdio: ["pipe", "ignore", "ignore", "ipc"], env: { ...process.env, WORKER_PROCESSOR_CHILD: "1" },
       });
     } catch { resolve("PROCESSOR_UNAVAILABLE"); return; }

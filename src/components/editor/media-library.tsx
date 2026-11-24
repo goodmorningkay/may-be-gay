@@ -10,6 +10,9 @@ import { Field } from "./fields";
 import styles from "./editor.module.css";
 
 const MiB = 1024 ** 2;
+const POLL_DELAYS_MS = [400, 600, 1000, 1500, 2000, 3000];
+const MAX_POLL_ATTEMPTS = 24;
+function pollDelayMs(attempt: number) { return POLL_DELAYS_MS[Math.min(attempt, POLL_DELAYS_MS.length - 1)]; }
 function bytes(value: number) { return `${(value / MiB).toFixed(1)} MiB`; }
 function assetName(asset: MediaList["assets"][number]) { return `${asset.kind === "image" ? "Image" : "MP3"} ${asset.id.slice(0, 8)}${asset.width && asset.height ? ` · ${asset.width} × ${asset.height}` : ""}${asset.durationMs ? ` · ${Math.ceil(asset.durationMs / 1000)}s` : ""}`; }
 export function MediaLibrary({ profileId, document: d, errors, disabled, onChange, onMedia }: {
@@ -21,7 +24,7 @@ export function MediaLibrary({ profileId, document: d, errors, disabled, onChang
   const [working, setWorking] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const lifecycle = useRef<{ alive: boolean; serial: number; timer?: ReturnType<typeof setTimeout>; request?: AbortController; mutation?: AbortController }>({ alive: false, serial: 0 });
-  const refresh = useCallback(async function refreshMedia(remaining = 20) {
+  const refresh = useCallback(async function refreshMedia(attempt = 0) {
     const life = lifecycle.current;
     clearTimeout(life.timer); life.request?.abort();
     const serial = ++life.serial, controller = new AbortController(); life.request = controller;
@@ -39,7 +42,7 @@ export function MediaLibrary({ profileId, document: d, errors, disabled, onChang
       }
       onMedia(map);
       if (next.assets.some(asset => ["quarantined", "processing"].includes(asset.state))) {
-        if (remaining > 0) life.timer = setTimeout(() => { void refreshMedia(remaining - 1); }, 3000);
+        if (attempt < MAX_POLL_ATTEMPTS) life.timer = setTimeout(() => { void refreshMedia(attempt + 1); }, pollDelayMs(attempt));
         else setNotice("Processing is taking longer than a minute. Automatic checks have stopped. Refresh when you are ready; queued media needs the processing worker.");
       }
     } catch (error) {

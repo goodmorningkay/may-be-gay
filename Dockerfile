@@ -53,6 +53,7 @@ COPY --chown=node:node tsconfig.json ./
 COPY --chown=node:node src ./src
 COPY --chown=node:node scripts ./scripts
 COPY --chown=node:node drizzle ./drizzle
+RUN npm run worker:build && chown -R node:node .worker
 ENV NODE_ENV=production
 USER node
 CMD ["node", "--conditions=react-server", "--import", "tsx", "scripts/worker.ts"]

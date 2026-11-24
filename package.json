@@ -14,6 +14,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --max-warnings=0",
     "native:build": "mkdir -p .native && cc -std=c11 -O2 -Wall -Wextra -Werror src/server/subprocess/guardian.c -o .native/may-be-guardian",
+    "worker:build": "node scripts/build-worker.mjs",
     "pretest": "npm run native:build",
     "test": "vitest run",
     "pretest:watch": "npm run native:build",

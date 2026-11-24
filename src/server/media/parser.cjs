@@ -3,9 +3,16 @@
 // validation.ts; no request file name, URL or codec option reaches this program.
 const fs = require("node:fs");
 const { spawnSync } = require("node:child_process");
-let sharp;
-try { sharp = require("sharp"); sharp.cache(false); sharp.concurrency(1); }
-catch { process.exit(78); }
+function loadSharp() {
+  try {
+    const sharp = require("sharp");
+    sharp.cache(false);
+    sharp.concurrency(1);
+    return sharp;
+  } catch {
+    process.exit(78);
+  }
+}
 const MAX_PIXELS = 16000000, MiB = 1048576;
 function fail() { throw new Error("invalid"); }
 function imageType(data) {
@@ -67,13 +74,16 @@ async function main() {
   const data = fs.readFileSync(input);
   if (!data.length || data.length > (kind === "image" ? 5 : 10) * MiB) fail();
   if (kind === "image") {
+    const sharp = loadSharp();
     const format = imageType(data);
     const options = { failOn: "warning", limitInputPixels: MAX_PIXELS, sequentialRead: true, animated: false, unlimited: false };
     const meta = await sharp(data, options).metadata();
     if (meta.format !== format || !meta.width || !meta.height || meta.width * meta.height > MAX_PIXELS || (meta.pages || 1) > 1) fail();
-    const full = await sharp(data, options).rotate().resize({ width: 4096, height: 4096, fit: "inside", withoutEnlargement: true }).webp({ quality: 85, effort: 3 }).timeout({ seconds: 10 }).toBuffer({ resolveWithObject: true });
+    const full = await sharp(data, options).rotate().resize({ width: 4096, height: 4096, fit: "inside", withoutEnlargement: true }).webp({ quality: 85, effort: 1 }).timeout({ seconds: 10 }).toBuffer({ resolveWithObject: true });
     if (full.data.length > 5 * MiB) fail();
-    const small = await sharp(full.data, options).resize({ width: 1600, height: 1600, fit: "inside", withoutEnlargement: true }).webp({ quality: 80, effort: 3 }).timeout({ seconds: 10 }).toBuffer({ resolveWithObject: true });
+    const small = full.info.width <= 1600 && full.info.height <= 1600 && full.data.length <= MiB
+      ? full
+      : await sharp(data, options).rotate().resize({ width: 1600, height: 1600, fit: "inside", withoutEnlargement: true }).webp({ quality: 80, effort: 1 }).timeout({ seconds: 10 }).toBuffer({ resolveWithObject: true });
     if (small.data.length > MiB) fail();
     fs.writeFileSync(output, full.data, { flag: "wx", mode: 0o600 });
     fs.writeFileSync(display, small.data, { flag: "wx", mode: 0o600 });

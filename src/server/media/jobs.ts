@@ -1,7 +1,7 @@
 import "server-only";
 import { and, eq, gt, sql } from "drizzle-orm";
 import { z } from "zod";
-import { getDatabase } from "@/server/db";
+import { getDatabase, getDatabaseClient } from "@/server/db";
 import { jobs, media } from "@/server/db/schema";
 import { mediaStorage } from "@/server/db/schema-media";
 import { inputLimit, RESERVATION_MS } from "./limits";
@@ -35,44 +35,76 @@ async function enqueueAssets(rows: { id: string; token: string }[], eventId: str
 }
 async function processAsset(assetId: string, token: string) {
   const storage = getMediaStorage();
-  await getDatabase().transaction(async tx => {
-    const [snapshot] = await tx.select().from(mediaStorage).where(eq(mediaStorage.assetId, assetId));
-    if (!snapshot || snapshot.token !== token) return;
-    const owner = await lockMediaOwner(tx, snapshot.ownerId, true);
-    const [row] = await tx.select().from(mediaStorage).where(eq(mediaStorage.assetId, assetId)).for("update");
-    if (!row || row.token !== token || row.state !== "queued") return;
-    if (!owner || owner.deletedAt || owner.suspendedAt || !owner.emailVerified || row.expiresAt.getTime() < Date.now()) {
-      await tx.update(mediaStorage).set({ state: "deleting" }).where(eq(mediaStorage.assetId, assetId));
-      await enqueueMediaDeletion(tx, row); return;
-    }
-    // Transaction advisory lock releases on crash, and is shared by every web and
-    // worker connection. Fail immediately instead of consuming waiting workers.
-    const [locked] = await tx.execute<{ acquired: boolean }>(sql`select pg_try_advisory_xact_lock(740301, 1) as acquired`);
-    if (!locked.acquired) throw new MediaError(429, "MEDIA_PARSER_BUSY", "Media processing is busy. Try again shortly.");
+  const reserved = await getDatabaseClient().reserve();
+  let parserLocked = false;
+  try {
+    // Session advisory lock on a reserved connection releases on crash or unlock,
+    // and shares the same namespace as pg_advisory_xact_lock(740301, 1).
+    const [locked] = await reserved<{ acquired: boolean }[]>`select pg_try_advisory_lock(740301, 1) as acquired`;
+    if (!locked?.acquired) throw new MediaError(429, "MEDIA_PARSER_BUSY", "Media processing is busy. Try again shortly.");
+    parserLocked = true;
+
+    const claimed = await getDatabase().transaction(async tx => {
+      const [snapshot] = await tx.select().from(mediaStorage).where(eq(mediaStorage.assetId, assetId));
+      if (!snapshot || snapshot.token !== token) return null;
+      const owner = await lockMediaOwner(tx, snapshot.ownerId, true);
+      const [row] = await tx.select().from(mediaStorage).where(eq(mediaStorage.assetId, assetId)).for("update");
+      if (!row || row.token !== token || row.state !== "queued") return null;
+      if (!owner || owner.deletedAt || owner.suspendedAt || !owner.emailVerified || row.expiresAt.getTime() < Date.now()) {
+        await tx.update(mediaStorage).set({ state: "deleting" }).where(eq(mediaStorage.assetId, assetId));
+        await enqueueMediaDeletion(tx, row);
+        return null;
+      }
+      await tx.update(media).set({ state: "processing" }).where(eq(media.id, assetId));
+      return { ownerId: snapshot.ownerId, kind: row.kind as "image" | "audio" };
+    });
+    if (!claimed) return;
+
     await deleteAssetScratch(assetId, token);
-    await tx.update(media).set({ state: "processing" }).where(eq(media.id, assetId));
-    const keys = objectKeys(row.assetId, row.token);
-    await cleanAssetTemporaries(storage, row);
+    const keys = objectKeys(assetId, token);
     let parsed;
-    try { parsed = await validateMedia(await storage.get("private", keys.quarantine, inputLimit(row.kind as "image" | "audio")), row.kind as "image" | "audio", { assetId, token }); }
-    catch (error) {
+    try {
+      const quarantine = await storage.get("private", keys.quarantine, inputLimit(claimed.kind));
+      parsed = await validateMedia(quarantine, claimed.kind, { assetId, token });
+    } catch (error) {
       if (!(error instanceof MediaError) || error.status !== 422) throw error;
-      await tx.update(media).set({ state: "rejected" }).where(eq(media.id, assetId));
-      await tx.update(mediaStorage).set({ state: "deleting", updatedAt: new Date() }).where(eq(mediaStorage.assetId, assetId));
-      await enqueueMediaDeletion(tx, row); return;
+      await getDatabase().transaction(async tx => {
+        await lockMediaOwner(tx, claimed.ownerId, true);
+        const [row] = await tx.select().from(mediaStorage).where(eq(mediaStorage.assetId, assetId)).for("update");
+        if (!row || row.token !== token || row.state !== "queued") return;
+        await tx.update(media).set({ state: "rejected" }).where(eq(media.id, assetId));
+        await tx.update(mediaStorage).set({ state: "deleting", updatedAt: new Date() }).where(eq(mediaStorage.assetId, assetId));
+        await enqueueMediaDeletion(tx, row);
+      });
+      return;
     }
-    const original = { area: "private" as const, key: row.kind === "image" ? keys.original : keys.audio, bytes: parsed.original.length,
-      contentType: parsed.contentType, ...(parsed.width ? { width: parsed.width, height: parsed.height } : {}), ...(parsed.durationMs ? { durationMs: parsed.durationMs } : {}) };
-    const display = row.kind === "image" ? { area: "private" as const, key: keys.display, bytes: parsed.display.length, contentType: parsed.contentType, width: parsed.displayWidth, height: parsed.displayHeight } : original;
-    const privateBytes = row.receivedBytes + original.bytes + (row.kind === "image" ? display.bytes : 0);
-    const charge = privateBytes + display.bytes;
-    if (charge > row.chargedBytes) throw invalidMedia();
-    await storage.put("private", original.key, parsed.original, original.contentType);
-    if (row.kind === "image") await storage.put("private", display.key, parsed.display, display.contentType);
-    await tx.update(mediaStorage).set({ original, display, state: "ready", chargedBytes: charge, privateBytes, publicBudgetBytes: display.bytes, updatedAt: new Date() }).where(eq(mediaStorage.assetId, assetId));
-    await tx.update(media).set({ state: "ready", objectKey: original.key, actualBytes: original.bytes, contentType: original.contentType, width: parsed.width ?? null, height: parsed.height ?? null, durationMs: parsed.durationMs ?? null }).where(eq(media.id, assetId));
-    await tx.insert(jobs).values({ kind: "media", idempotencyKey: `media:trim:${assetId}`, maxAttempts: 20, payload: { version: 1, action: "trim", assetId, token } }).onConflictDoNothing();
-  });
+
+    await getDatabase().transaction(async tx => {
+      const owner = await lockMediaOwner(tx, claimed.ownerId, true);
+      const [row] = await tx.select().from(mediaStorage).where(eq(mediaStorage.assetId, assetId)).for("update");
+      if (!row || row.token !== token || row.state !== "queued") return;
+      if (!owner || owner.deletedAt || owner.suspendedAt || !owner.emailVerified || row.expiresAt.getTime() < Date.now()) {
+        await tx.update(mediaStorage).set({ state: "deleting" }).where(eq(mediaStorage.assetId, assetId));
+        await enqueueMediaDeletion(tx, row);
+        return;
+      }
+      await cleanAssetTemporaries(storage, row);
+      const original = { area: "private" as const, key: row.kind === "image" ? keys.original : keys.audio, bytes: parsed.original.length,
+        contentType: parsed.contentType, ...(parsed.width ? { width: parsed.width, height: parsed.height } : {}), ...(parsed.durationMs ? { durationMs: parsed.durationMs } : {}) };
+      const display = row.kind === "image" ? { area: "private" as const, key: keys.display, bytes: parsed.display.length, contentType: parsed.contentType, width: parsed.displayWidth, height: parsed.displayHeight } : original;
+      const privateBytes = row.receivedBytes + original.bytes + (row.kind === "image" ? display.bytes : 0);
+      const charge = privateBytes + display.bytes;
+      if (charge > row.chargedBytes) throw invalidMedia();
+      await storage.put("private", original.key, parsed.original, original.contentType);
+      if (row.kind === "image") await storage.put("private", display.key, parsed.display, display.contentType);
+      await tx.update(mediaStorage).set({ original, display, state: "ready", chargedBytes: charge, privateBytes, publicBudgetBytes: display.bytes, updatedAt: new Date() }).where(eq(mediaStorage.assetId, assetId));
+      await tx.update(media).set({ state: "ready", objectKey: original.key, actualBytes: original.bytes, contentType: original.contentType, width: parsed.width ?? null, height: parsed.height ?? null, durationMs: parsed.durationMs ?? null }).where(eq(media.id, assetId));
+      await tx.insert(jobs).values({ kind: "media", idempotencyKey: `media:trim:${assetId}`, maxAttempts: 20, payload: { version: 1, action: "trim", assetId, token } }).onConflictDoNothing();
+    });
+  } finally {
+    if (parserLocked) await reserved`select pg_advisory_unlock(740301, 1)`.catch(() => {});
+    reserved.release();
+  }
 }
 async function reconcileAsset(assetId: string, token: string, expireOnly = false) {
   const storage = getMediaStorage(); getMediaPurge(storage);

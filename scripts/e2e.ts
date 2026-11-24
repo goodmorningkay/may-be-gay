@@ -19,6 +19,7 @@ async function run(command: string, args: string[], allowFailure = false) {
 }
 for (const signal of ["SIGINT", "SIGTERM"] as const) process.once(signal, () => active?.kill(signal));
 async function main() { try {
+  await run("npm", ["run", "worker:build"]);
   await run("npm", ["run", "build"]);
   await mkdir(".next/standalone/.next", { recursive: true });
   await cp(".next/static", ".next/standalone/.next/static", { recursive: true });
