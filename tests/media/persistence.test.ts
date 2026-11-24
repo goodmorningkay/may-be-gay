@@ -359,7 +359,10 @@ describe.skipIf(!testUrl)("media PostgreSQL ownership, quota and distributed tra
     let backupLocked = false;
     let parserLocked = false;
     try {
-      await entered.promise;
+      await Promise.race([
+        entered.promise,
+        processing.then(() => { throw new Error("processing finished before quarantine read"); }),
+      ]);
       await conn`set lock_timeout='5s'`;
       // Exact lock order used by backup.ts: MEDIA_BACKUP_LOCK (740303,1) then PARSER_LOCK (740301,1).
       const [{ acquired }] = await conn<{ acquired: boolean }[]>`select pg_try_advisory_lock(740303, 1) as acquired`;
@@ -395,18 +398,24 @@ describe.skipIf(!testUrl)("media PostgreSQL ownership, quota and distributed tra
     expect(done.state).toBe("ready");
     expect(done.original?.bytes).toBe(priorOriginal.length);
   });
-  it("removes an obsolete display.webp during trim when a shared-variant commit succeeds", async () => {
-    const a = await owner(), asset = await upload(a.id), [row] = await harness.db.select().from(mediaStorage).where(eq(mediaStorage.assetId, asset.id));
+  it("keeps an obsolete display.webp charged on ready and removes it during trim for a shared GIF retry", async () => {
+    const a = await owner();
+    const { gifFixture } = await import("./gif-fixture");
+    const gif = await gifFixture(8, 8, 2);
+    const asset = await uploadMedia(a.id, "image", new ReadableStream({ start(c) { c.enqueue(gif); c.close(); } }));
+    const [row] = await harness.db.select().from(mediaStorage).where(eq(mediaStorage.assetId, asset.id));
     const keys = objectKeys(row.assetId, row.token);
-    const body = await sharp(fixture).webp({ quality: 80, effort: 1 }).toBuffer();
-    await getMediaStorage().put("private", keys.original, body, "image/webp");
-    await getMediaStorage().put("private", keys.display, body, "image/webp");
-    const shared = { area: "private" as const, key: keys.original, bytes: body.length, contentType: "image/webp" as const, width: 16, height: 16 };
-    await harness.db.update(mediaStorage).set({ state: "ready", original: shared, display: shared, publicBudgetBytes: body.length }).where(eq(mediaStorage.assetId, row.assetId));
+    const obsoleteDisplay = await sharp(fixture).webp({ quality: 80, effort: 1 }).toBuffer();
+    await getMediaStorage().put("private", keys.display, obsoleteDisplay, "image/webp");
+    await processMediaJob({ version: 1, action: "process", assetId: row.assetId, token: row.token });
+    const [readyRow] = await harness.db.select().from(mediaStorage).where(eq(mediaStorage.assetId, row.assetId));
+    expect(readyRow.state).toBe("ready");
+    expect(readyRow.display?.key).toBe(keys.original);
+    expect(readyRow.privateBytes).toBe(row.receivedBytes + readyRow.original!.bytes + obsoleteDisplay.length);
     await processMediaJob({ version: 1, action: "trim", assetId: row.assetId, token: row.token });
     expect(await getMediaStorage().exists("private", keys.display)).toBe(false);
     const [trimmed] = await harness.db.select().from(mediaStorage).where(eq(mediaStorage.assetId, row.assetId));
-    expect(trimmed.privateBytes).toBe(body.length);
+    expect(trimmed.privateBytes).toBe(readyRow.original!.bytes);
   });
   it("defers physical deletion while parser scratch lock is active for that asset and token", async () => {
     const a = await owner(), asset = await upload(a.id), [row] = await harness.db.select().from(mediaStorage).where(eq(mediaStorage.assetId, asset.id));

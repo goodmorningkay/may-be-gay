@@ -98,10 +98,18 @@ export async function validateMedia(data: Buffer, kind: MediaKind | "mp3", locat
   });
 }
 
-/** Recovery and retry validation for WebP derivatives already produced by the parser. */
-export async function validateStoredWebp(data: Buffer, locator?: ScratchLocator) {
+const storedWebpSchema = z.object({ width: z.number().int().positive(), height: z.number().int().positive() }).strict();
+
+/** Validate a stored WebP derivative and return its decoded frame dimensions. */
+export async function inspectStoredWebp(data: Buffer, locator?: ScratchLocator): Promise<{ width: number; height: number }> {
   const result = await withParserInput(data, IMAGE_BYTES, locator, input => runParser("stored-webp", input));
-  if (result !== "ok") throw invalidMedia();
+  try { return storedWebpSchema.parse(JSON.parse(result)); }
+  catch { throw invalidMedia(); }
+}
+
+/** Recovery validation for WebP derivatives already produced by the parser. */
+export async function validateStoredWebp(data: Buffer, locator?: ScratchLocator): Promise<void> {
+  await inspectStoredWebp(data, locator);
 }
 
 export async function deleteAssetScratch(assetId: string, token: string): Promise<void> {

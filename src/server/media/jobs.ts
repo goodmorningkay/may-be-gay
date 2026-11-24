@@ -8,7 +8,7 @@ import { DISPLAY_BYTES, IMAGE_BYTES, inputLimit, RESERVATION_MS } from "./limits
 import { invalidMedia, MediaError } from "./errors";
 import { cleanAssetTemporaries, getMediaStorage, objectKeys, publicObjectKey } from "./storage";
 import { getMediaPurge } from "./purge";
-import { deleteAssetScratch, sweepMediaScratch, validateMedia, validateStoredWebp } from "./validation";
+import { deleteAssetScratch, inspectStoredWebp, sweepMediaScratch, validateMedia } from "./validation";
 import { activePublication, assetIdSchema, enqueueMediaDeletion, enqueuePublicPurge, lockMediaOwner, pruneMediaFeedback, retainedMedia } from "./service";
 
 const locator = { version: z.literal(1), assetId: assetIdSchema, token: z.string().uuid() };
@@ -83,6 +83,7 @@ async function processAsset(assetId: string, token: string) {
 
     const keys = objectKeys(assetId, token);
     let parsed;
+    let obsoleteDisplayBytes = 0;
     let validationRejected = false;
     try {
       await deleteAssetScratch(assetId, token);
@@ -94,17 +95,31 @@ async function processAsset(assetId: string, token: string) {
       if (claimed.kind === "image" && await storage.exists("private", keys.original)) {
         const existingOriginal = await storage.get("private", keys.original, IMAGE_BYTES);
         if (!existingOriginal.equals(parsed.original)) {
-          await validateStoredWebp(existingOriginal, { assetId, token });
+          const dims = await inspectStoredWebp(existingOriginal, { assetId, token });
           const keepShared = parsed.sharedVariants && existingOriginal.length <= DISPLAY_BYTES;
-          parsed = { ...parsed, original: existingOriginal, display: keepShared ? existingOriginal : parsed.display, ...(keepShared ? { sharedVariants: true as const } : { sharedVariants: undefined }) };
+          parsed = {
+            ...parsed,
+            original: existingOriginal,
+            width: dims.width,
+            height: dims.height,
+            display: keepShared ? existingOriginal : parsed.display,
+            ...(keepShared
+              ? { displayWidth: dims.width, displayHeight: dims.height, sharedVariants: true as const }
+              : { sharedVariants: undefined }),
+          };
         }
       }
       if (claimed.kind === "image" && !parsed.sharedVariants && await storage.exists("private", keys.display)) {
         const existingDisplay = await storage.get("private", keys.display, DISPLAY_BYTES);
         if (!existingDisplay.equals(parsed.display)) {
-          await validateStoredWebp(existingDisplay, { assetId, token });
-          parsed = { ...parsed, display: existingDisplay };
+          const dims = await inspectStoredWebp(existingDisplay, { assetId, token });
+          parsed = { ...parsed, display: existingDisplay, displayWidth: dims.width, displayHeight: dims.height };
         }
+      }
+      if (claimed.kind === "image" && parsed.sharedVariants && await storage.exists("private", keys.display)) {
+        // Keep an obsolete separate display.webp covered in privateBytes until
+        // trimQuarantine/reconcileAsset deletes it after the ready commit.
+        obsoleteDisplayBytes = (await storage.get("private", keys.display, DISPLAY_BYTES)).length;
       }
     } catch (error) {
       if (!(error instanceof MediaError) || error.status !== 422) throw error;
@@ -143,7 +158,7 @@ async function processAsset(assetId: string, token: string) {
       const display = row.kind === "image" && !parsed.sharedVariants
         ? { area: "private" as const, key: keys.display, bytes: parsed.display.length, contentType: parsed.contentType, width: parsed.displayWidth, height: parsed.displayHeight }
         : original;
-      const privateBytes = row.receivedBytes + privateDerivativeBytes(original, display);
+      const privateBytes = row.receivedBytes + privateDerivativeBytes(original, display) + obsoleteDisplayBytes;
       const charge = privateBytes + display.bytes;
       if (charge > row.chargedBytes) throw invalidMedia();
       await storage.put("private", original.key, parsed.original, original.contentType);

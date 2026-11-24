@@ -162,7 +162,9 @@ async function stillVariants(data, options) {
   let small = full.info.width <= 1600 && full.info.height <= 1600 && full.data.length <= MiB
     ? { ...full }
     : await encodeWebp(data, options, 1600, { quality: 80, effort: 1 });
-  if (small.data.length > MiB) small = await encodeWebp(data, options, 1600, { quality: 80, effort: 3 });
+  // Final fallback matches the previous two-stage effort-3 encode so borderline
+  // <=1 MiB images that previously passed are never rejected.
+  if (small.data.length > MiB) small = await encodeWebp(full.data, options, 1600, { quality: 80, effort: 3 });
   if (small.data.length > MiB) fail();
   return [full, small];
 }
@@ -339,10 +341,10 @@ async function main() {
   if (kind === "image") {
     await processImage(data, output, display);
   } else if (kind === "stored-webp") {
-    const { options } = await imageInput(data, true);
+    const { options, width, height } = await imageInput(data, true);
     // Recovery checks every frame for corruption without recompressing it.
     await getSharp()(data, options).raw().timeout({ seconds: 10 }).toBuffer();
-    process.stdout.write("ok");
+    process.stdout.write(JSON.stringify({ width, height }));
   } else if (kind === "audio" || kind === "mp3") {
     process.stdout.write(JSON.stringify({ contentType: "audio/mpeg", durationMs: processAudio(data, input, output, kind === "mp3") }));
   } else fail();
