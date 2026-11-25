@@ -31,7 +31,7 @@ when restoring an older archive. No operational secret is embedded unencrypted.
 
 BACKUP_LOCAL_ROOT and BACKUP_WORK_ROOT are absolute private directories, mode
 0700, with no symlink aliases or public/.next paths. Production requires an
-explicit, persistent BACKUP_WORK_ROOT for retention checkpoints; local development
+explicit, persistent BACKUP_WORK_ROOT for recovery scratch; local development
 defaults to /tmp/may-be-recovery. Compose persists /app/var/recovery. Provision
 sufficient encrypted scratch disk: a DB dump,
 encrypted files and restore plaintext coexist temporarily. Archive files use
@@ -41,8 +41,7 @@ Filesystem deletion is not secure erasure; use encrypted host storage.
 
 An archive first takes the nonqueued runner lock (740304,1), held until upload/
 retention ends; another archive invocation fails as already running. This
-serializes cache replacement/checkpoints without holding content locks during
-provider I/O. A snapshot then acquires the operations/journal mutex (740302,1),
+serializes archive commits and retention. A snapshot then acquires the operations/journal mutex (740302,1),
 then the exclusive
 exported MEDIA_BACKUP_LOCK (currently 740303,1), **before** beginning a
 REPEATABLE READ transaction. It exports one PostgreSQL snapshot, passes it to
@@ -83,78 +82,23 @@ Authentication and every size/hash pass in private staging before restored
 SQL/media is used. Only authenticated operator-created PostgreSQL archives are
 trusted SQL input; key custody is also archive-author authority.
 
-Local archives are real durable files (fsync file and destination directory).
-Optional off-host storage requires BACKUP_OFFHOST=s3 plus **all** of:
-BACKUP_S3_ENDPOINT (HTTPS origin), BACKUP_S3_REGION, BACKUP_S3_BUCKET,
-BACKUP_S3_ACCESS_KEY_ID, BACKUP_S3_SECRET_ACCESS_KEY and BACKUP_S3_PREFIX
-(backups/<lowercase-installation-id>/). These are explicit backup credentials,
-not application media credentials. Reused media bucket, access ID or secret is
-rejected. Scope Get/Put/Delete/List to this prefix in its private bucket; no ACL,
-DNS or bucket-creation privileges. Restores into S3 also need ListObjectsV2 on
-the two empty destination media buckets to establish emptiness. Requests have
-abort deadlines, bounded streams, two attempts, no raw provider errors and
-immutable conditional writes. A committed manifest is uploaded last. Failure
-of any configured destination is a failed backup. Never enable this against a
-real provider merely to run local acceptance.
+Local archive files and their destination directories are fsynced. The
+authenticated manifest is written last. Each snapshot includes its own ready
+private media, so restoring it does not depend on a newer snapshot or a shared
+media mirror. Restoring private media into S3 requires permission to list both
+empty destination media buckets.
 
-Every snapshot contains all its ready private bytes independently: it does not
-depend on current media, a mutable shared mirror, or a later snapshot. Durable
-stores retain 30 days of history, including complete media copies. A local-only
-configuration retains that full history and requires its full disk capacity; it
-is suitable for explicitly sized offline/development fixtures, not a claim of
-off-host protection.
+Retention checks archive IDs for 30-day expiry, including incomplete archives.
+It opens only expired directories and cleans up to 16 per pass, with a soft
+10-second work budget checked between removals. Subsequent archive runs resume
+by scanning the remaining expired directories. A successful archive reports
+incomplete cleanup as `retentionPending`. Monitor persistent backlog and free disk.
 
-With BACKUP_OFFHOST=s3, S3 is the durable 30-day archive and BACKUP_LOCAL_ROOT is
-only a cache of **one snapshot and one journal**. The durable destinations are
-attempted first, independently; their authenticated manifests are still written
-last. Only after every durable destination commits may the previous local cache
-of the same kind be removed and the new one copied. Failure to finish that cache
-cleanup prevents a new local copy from growing the cache, while off-host commit
-has already been attempted. An off-host failure leaves the old cache untouched
-and adds no new local copy. Any configured write or cleanup error fails the
-backup/status even if a different destination committed successfully. A crash
-can leave a partial cache copy; the next successful off-host commit prunes it
-before writing another. The cache cannot supply historical 30-day restores: use
---offhost for those. Use a fresh cache root when switching from local-only history;
-preserve the old root until its contents are independently archived or expired.
-
-Retention streams pages of at most 1,000 entries, without a store-wide inventory
-or total-object cap. Local directories use bounded lexical pages; S3 uses the
-last validated key as StartAfter, avoiding expiring continuation tokens. Generated
-archive IDs determine expiry, including uncommitted partial uploads. Each pass
-has a 16-page/15-second soft work budget, checked between objects (an in-flight
-filesystem/provider operation and directory scan can exceed the soft deadline;
-the overall backup abort still applies). Private atomically renamed/fsynced
-retention-<identity-hash>.json checkpoints in BACKUP_WORK_ROOT resume on the next
-snapshot/journal run. Deletions precede checkpoint advancement; interrupted work
-replays at most 63 deleted objects, and budget exits save the last processed key.
-Completed sweeps reset the cursor so newly expired entries are revisited. Keep
-this root on persistent private storage. The database runner lock serializes
-normal archive invocations; use one source database per backup namespace and do
-not invoke standalone retention concurrently. Do not remove checkpoints during
-normal operation.
-A missing checkpoint safely starts over. Expiry is eligible at 30 days and is
-applied over successive passes; backlog is reported as retentionPending in the
-redacted successful backup result, not silently represented as a finished sweep.
-Monitor continued backlog and free space. No later archive upload waits for an
-older destination's cleanup to finish before attempting other durable stores.
-
-At a 5 GiB private-media allowance, 30 independent full snapshots alone can need
-150 GiB off-host (plus DB/journals). On-host off-host-mode cache needs one full
-encrypted snapshot plus one encrypted whole-history journal. Let M be private
-media size (at most 5 GiB here), D the custom DB dump size, and J the full journal
-size. Reserve cache `C = M + D + J`, plus backup scratch of approximately
-`max(2D, D + M + 10 MiB, 2J)`, plus encryption framing/manifests and safety
-headroom. DB and journal encryption briefly retain both plaintext and ciphertext;
-media copying retains the accumulated encrypted snapshot plus one plaintext
-object. Add live DB/media, WAL, OS and operational headroom separately. Restore
-needs two staged journal copies while authenticating, all snapshot plaintext and
-a concurrently growing target DB/media (the target DB can exceed compressed dump
-size): provision separately measured scratch capacity for a full restore drill.
-The format's 16 GiB DB/journal bounds are validation ceilings, not a promise to fit
-them on a 40 GiB disk. That disk requires measured DB/journal sizes, free-space
-monitoring and separate restore scratch if the sum cannot fit. Tiny fixture
-measurements establish no production disk sizing.
+At a 5 GiB private-media allowance, 30 daily snapshots can require 150 GiB plus
+the database dumps and journal checkpoints. Provision recovery scratch for
+plaintext and encrypted copies during packaging, and measure separate space
+for restore staging, the new database, and media. Reserve headroom for the live
+database, WAL and OS separately.
 
 The current database recovery journal is not pruned. Old complete journal
 checkpoints can expire because each newer checkpoint contains the whole ordered
@@ -191,7 +135,6 @@ NODE_OPTIONS=--conditions=react-server npx tsx --env-file=restore.env scripts/re
   --recovery-through <verified-UTC-cutover-time>
 ```
 
-Add --offhost to read the configured S3 backup store; default reads local.
 The checkpoint must be at least as new as the acknowledged cutover, have exactly
 the expected high-water sequence, match the snapshot's source, and be at most
 120 seconds old when restore starts. Acquire/verify a fresh checkpoint first.

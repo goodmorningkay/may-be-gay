@@ -131,6 +131,11 @@ async function main() {
     assert.equal((await check("app.may-be.localhost", "/", 307)).headers.location, "/editor");
     await check("app.may-be.localhost", "/sign-in", 200);
     await check("app.may-be.localhost", "/api/profile", 401);
+    for (const method of ["PUT", "PATCH", "DELETE", "OPTIONS"]) {
+      const rejected = await check("app.may-be.localhost", "/api/media", 405, {}, method);
+      assert.equal(rejected.headers.allow, "GET, HEAD, POST");
+      await check("alice-http.may-be.localhost", "/api/media", 404, {}, method);
+    }
     await check("app.may-be.localhost", "/api/profile", 403, { origin: "https://alice-http.may-be.localhost" }, "PUT");
     await check("may-be.localhost", "/examples?preset=midnight&layout=split&font=mono", 200);
     await check("may-be.localhost", "/examples?preset=javascript", 404);

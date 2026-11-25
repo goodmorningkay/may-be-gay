@@ -48,3 +48,34 @@ describe("one-job worker mode", () => {
     }
   });
 });
+
+it("keeps a media claim unstarted during a snapshot longer than the job deadline", async () => {
+  vi.useFakeTimers();
+  let release!: () => void;
+  const snapshot = new Promise<void>(resolve => { release = resolve; });
+  vi.mocked(archiveSchedule).mockImplementation(async (_, kind) => {
+    if (kind === "snapshot") await snapshot;
+  });
+  const stop = new AbortController();
+  const queue = {
+    sql: Object.assign(vi.fn(async () => []), { json: (v: unknown) => v }),
+    reclaim: vi.fn(async () => {}),
+    claim: vi.fn(async () => ({ kind: "media", created_at: new Date() })),
+    finish: vi.fn(async () => { stop.abort(); return true; }),
+  } as unknown as Queue;
+  vi.mocked(dispatch).mockResolvedValue(undefined);
+  const running = runWorker(queue, stop.signal);
+  try {
+    await vi.advanceTimersByTimeAsync(61_000);
+    expect(archiveSchedule).toHaveBeenCalledWith(queue.sql, "snapshot", expect.any(AbortSignal));
+    expect(queue.claim).not.toHaveBeenCalled();
+    expect(dispatch).not.toHaveBeenCalled();
+    release();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(queue.finish).toHaveBeenCalledOnce();
+  } finally {
+    release();
+    stop.abort();
+    await running;
+  }
+});

@@ -26,3 +26,7 @@ export async function POST(request: Request) {
   });
 }
 export const HEAD = GET;
+export const PUT = (request: Request) => mediaIngress(request, () => Promise.resolve(apiJson({}, 405)));
+export const PATCH = PUT;
+export const DELETE = PUT;
+export const OPTIONS = PUT;

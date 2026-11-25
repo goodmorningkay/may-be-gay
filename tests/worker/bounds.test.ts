@@ -51,4 +51,16 @@ describe("in-process worker bounds and redaction", () => {
     expect(failureCode({ code: "MEDIA_STORAGE_UNAVAILABLE", message: "secret" })).toBe("MEDIA_STORAGE_UNAVAILABLE");
     expect(failureCode(Object.assign(new Error("bad payload"), { name: "ZodError" }))).toBe("INVALID_JOB_PAYLOAD");
   });
+
+  it.each([
+    { kind: "media", age: 0, result: undefined, finish: true },
+    { kind: "email", age: 24 * 3600_000, result: undefined, finish: true },
+    { kind: "email", age: 0, result: "JOB_CLAIM_LOST", finish: false },
+  ])("restarts on a lost $kind claim (age $age, processor result $result)", async ({ kind, age, result, finish }) => {
+    const acknowledge = vi.fn(async () => false);
+    const queue = { finish: acknowledge } as unknown as Queue;
+    const claim = { kind, created_at: new Date(Date.now() - age) } as Claim;
+    await expect(executeClaim(queue, claim, new AbortController().signal, async () => result)).rejects.toThrow("JOB_LEASE_LOST");
+    expect(acknowledge).toHaveBeenCalledTimes(finish ? 1 : 0);
+  });
 });

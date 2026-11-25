@@ -43,7 +43,7 @@ export async function executeClaim(
 ) {
   if (signal.aborted) return;
   if (claim.kind === "email" && Date.now() - new Date(claim.created_at).getTime() >= 23 * 3600_000) {
-    await queue.finish(claim, "MAIL_RETRY_WINDOW_EXPIRED", true);
+    if (!await queue.finish(claim, "MAIL_RETRY_WINDOW_EXPIRED", true)) throw new WorkerInterruption("JOB_LEASE_LOST");
     return;
   }
   const controller = new AbortController();
@@ -67,7 +67,9 @@ export async function executeClaim(
     const run = processor ?? ((current: Claim, s: AbortSignal) => runInProcess(current, s, queue.sql));
     const code = await run(claim, controller.signal);
     controller.signal.throwIfAborted();
-    await queue.finish(claim, code, code === "INVALID_JOB_PAYLOAD");
+    if (code === "JOB_CLAIM_LOST" || !await queue.finish(claim, code, code === "INVALID_JOB_PAYLOAD")) {
+      throw new WorkerInterruption("JOB_LEASE_LOST");
+    }
   } finally {
     clearInterval(timer);
     signal.removeEventListener("abort", abort);
@@ -119,18 +121,16 @@ export async function runWorker(queue: Queue, signal: AbortSignal, once = false)
     }
   };
   let timer: ReturnType<typeof setInterval> | undefined;
-  let archiveTimer: ReturnType<typeof setInterval> | undefined;
-  let archiving = false;
+  let archivesAt = 0;
   const archives = async () => {
-    if (archiving || !readiness().backup || stop.aborted) return;
-    archiving = true;
+    if (once || stop.aborted || Date.now() < archivesAt || !readiness().backup) return;
     try {
       await archiveSchedule(queue.sql, "journal", stop);
-      await archiveSchedule(queue.sql, "snapshot", stop);
+      if (!stop.aborted) await archiveSchedule(queue.sql, "snapshot", stop);
     } catch {
       console.error('{"code":"ARCHIVE_SCHEDULE_FAILED"}');
     } finally {
-      archiving = false;
+      archivesAt = Date.now() + 10_000;
     }
   };
   let wakeResolve: (() => void) | undefined;
@@ -167,14 +167,12 @@ export async function runWorker(queue: Queue, signal: AbortSignal, once = false)
     await tick();
     if (stop.aborted) return;
     timer = setInterval(() => void tick(), 10_000);
-    if (!once) {
-      void archives();
-      archiveTimer = setInterval(() => void archives(), 10_000);
-      if (typeof queue.sql.listen === "function") {
-        listener = await queue.sql.listen("may_be_jobs", wake).catch(() => undefined);
-      }
+    if (!once && typeof queue.sql.listen === "function") {
+      listener = await queue.sql.listen("may_be_jobs", wake).catch(() => undefined);
     }
     while (!stop.aborted) {
+      await archives();
+      if (stop.aborted) break;
       await queue.reclaim();
       if (stop.aborted) break;
       const claim = await queue.claim(++ticks % 8 === 0);
@@ -187,11 +185,10 @@ export async function runWorker(queue: Queue, signal: AbortSignal, once = false)
     await Promise.race([maintenanceFailure, work()]);
   } finally {
     clearInterval(timer);
-    clearInterval(archiveTimer);
   }
   // An interrupted job can still be executing. The CLI exits immediately on
   // failure and leaves its lease for recovery after the container stops.
   await listener?.unlisten().catch(() => {});
-  while (maintaining || archiving) await pause(50);
+  while (maintaining) await pause(50);
   await queue.sql`delete from worker_heartbeats where id=${id}`;
 }

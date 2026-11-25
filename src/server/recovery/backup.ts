@@ -59,9 +59,8 @@ export async function createArchive(kind: "snapshot" | "journal", options: { url
     const conn = await sql.reserve();
     try {
       await conn`set lock_timeout='10s'`;
-      // Serialize cache replacement/checkpoints through upload without holding
-      // the operations or media locks during provider I/O. A crashed connection
-      // releases this runner lock; there is no stale filesystem lock to clear.
+      // Serialize archive commits and retention. PostgreSQL releases the runner
+      // lock if this connection closes.
       const [{ runner }] = await conn`select pg_try_advisory_lock(740304,1) as runner`;
       if (!runner) fail("BACKUP_ALREADY_RUNNING");
       // Session lock BEFORE BEGIN: no RR snapshot is taken while waiting for a writer.

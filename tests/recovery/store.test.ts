@@ -78,4 +78,20 @@ describe("local backup store and retention", () => {
     expect(stores).toHaveLength(1);
     expect(stores[0]).toBeInstanceOf(LocalBackupStore);
   });
+
+  it("limits each cleanup pass and skips contents of fresh archives", async () => {
+    root = await mkdtemp(path.join(os.tmpdir(), "backup-retention-"));
+    const store = new LocalBackupStore(path.join(root, "store"));
+    const input = path.join(root, "input"), now = Date.now();
+    await writeFile(input, "sealed", { mode: 0o600 });
+    const fresh = `journal-${now}-${randomUUID()}`;
+    await store.put(fresh, "manifest.enc", input);
+    await writeFile(path.join(store.root, fresh, "unexpected-file"), "test");
+    for (let i = 0; i < 17; i++) {
+      await store.put(`journal-${now - 31 * 86400000}-${randomUUID()}`, "manifest.enc", input);
+    }
+    expect(await retain(store, signal, now)).toEqual({ complete: false, removed: 16 });
+    expect(await retain(store, signal, now)).toEqual({ complete: true, removed: 1 });
+    expect(await readdir(store.root)).toEqual([fresh]);
+  });
 });

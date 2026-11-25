@@ -13,6 +13,7 @@ import { draftMedia, jobs, media, profileDrafts, profileRevisions, profiles, rev
 import { MAX_ASSETS, MAX_PRIVATE_MEDIA_OBJECTS, MAX_REJECTION_FEEDBACK } from "@/domain/media";
 import { mediaListSchema } from "@/components/editor/api";
 import { Queue, workerConnection } from "@/server/worker/queue";
+import { executeClaim } from "@/server/worker/runtime";
 import { defaultProfileDocument } from "@/domain/profile";
 import { assertOwnedReadyMedia, deleteOwnedMedia, getPrivateMedia, getPublicMedia, listOwnedMedia, publishOwnedMedia, readLocalPublicContent, readPrivateContent, uploadMedia } from "@/server/media/service";
 import { enqueueMediaSweep, processCachePurgeJob, processMediaDeletionJob, processMediaJob } from "@/server/media/jobs";
@@ -408,7 +409,7 @@ describe.skipIf(!testUrl)("media PostgreSQL ownership, quota and distributed tra
     expect(done.original?.bytes).toBe(priorOriginal.length);
     expect(await getMediaStorage().exists("private", keys.quarantine)).toBe(false);
   });
-  it("keeps an obsolete display.webp charged on ready when immediate trim fails and removes it via reconcileAsset", async () => {
+  it("runs a legacy queued trim job and releases an obsolete display reservation", async () => {
     const a = await owner();
     const { gifFixture } = await import("./gif-fixture");
     const gif = await gifFixture(8, 8, 2);
@@ -425,7 +426,20 @@ describe.skipIf(!testUrl)("media PostgreSQL ownership, quota and distributed tra
     expect(readyRow.state).toBe("ready");
     expect(readyRow.display?.key).toBe(keys.original);
     expect(readyRow.privateBytes).toBe(row.receivedBytes + readyRow.original!.bytes + obsoleteDisplay.length);
-    await processMediaJob({ version: 1, action: "reconcileAsset", assetId: row.assetId, token: row.token });
+    const [legacyJob] = await harness.db.insert(jobs).values({
+      kind: "media", idempotencyKey: `media:trim:${row.assetId}`, maxAttempts: 20,
+      availableAt: new Date(0), payload: { version: 1, action: "trim", assetId: row.assetId, token: row.token },
+    }).returning({ id: jobs.id });
+    const queue = new Queue(workerConnection(testUrl));
+    try {
+      const claim = await queue.claim();
+      expect(claim?.id).toBe(legacyJob.id);
+      await executeClaim(queue, claim!, new AbortController().signal);
+      const [finished] = await harness.db.select({ state: jobs.state }).from(jobs).where(eq(jobs.id, legacyJob.id));
+      expect(finished.state).toBe("succeeded");
+    } finally {
+      await queue.sql.end();
+    }
     expect(await getMediaStorage().exists("private", keys.display)).toBe(false);
     expect(await getMediaStorage().exists("private", keys.quarantine)).toBe(false);
     const [trimmed] = await harness.db.select().from(mediaStorage).where(eq(mediaStorage.assetId, row.assetId));

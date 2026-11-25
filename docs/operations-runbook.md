@@ -80,34 +80,16 @@ cleanup, not just whether a username disappeared. Failed parser binaries and
 missing providers require repair; changing a failed state to succeeded is not a
 repair.
 
-For backup failure/age, inspect redacted recovery_status and worker_schedules,
-key-file permissions, separate store credentials, native tool version, free
-scratch disk and lock timeouts. Confirm manifest commit records exist in every
-durable store, not just partial file uploads. Every destination is attempted before
-another destination's cleanup can fail. Any write/retention error still marks the
-backup failed even if off-host commit succeeded: check each commit record privately
-before retrying, and run a fresh snapshot/journal after repair.
+For backup failure or age, inspect the redacted `recovery_status` and
+`worker_schedules` rows, the key-file permissions, PostgreSQL tool version,
+free disk and lock timeouts. Check the local store for the authenticated
+manifest commit record, then run a fresh archive after repair.
 
-BACKUP_OFFHOST=s3 keeps 30-day history off-host and only one snapshot plus one
-journal in the local cache. Cache replacement occurs after durable commits; a
-failed/incomplete local prune blocks cache growth. Local-only mode keeps full
-30-day history and needs the corresponding disk budget. Do not claim that a short
-cache is 30-day local protection. At 5 GiB media, 30 daily full snapshots can need
-150 GiB plus DB/journals. Off-host mode still needs cache `M + D + J` plus scratch
-`max(2D, D + M + 10 MiB, 2J)`, where M is private media size, D the DB dump
-size and J the complete journal size, plus framing and headroom beyond live
-data/OS/WAL. Restore staging needs its own measured budget. A 40 GiB root disk is not sufficient
-for the format's maximum DB/journal bounds without separately sized scratch.
-
-Retention uses bounded pages and persistent private checkpoints in BACKUP_WORK_ROOT
-and resumes on each minute journal/daily snapshot run. Keep that root persistent,
-run one archive/retention runner per namespace and monitor retentionPending until
-a sweep completes. Expiry eligibility is 30 days with bounded sweep lag. Do not
-wipe a checkpoint to bypass an error; inspect directory permissions and validated
-store layout, repair the cause, then resume. Above 250,000 objects there is no
-inventory cap or allocation of the entire namespace. Cache roots upgraded from
-old local-only history should be changed to a fresh root while preserving old
-history until independently archived/expired.
+The local store retains 30 days of encrypted snapshots and journal checkpoints.
+At 5 GiB of private media, 30 daily snapshots can require 150 GiB plus DB dumps
+and journals. Monitor free space and `retentionPending` in the status details.
+Retention only opens expired directories and removes them in bounded passes.
+Keep BACKUP_WORK_ROOT on private persistent storage for recovery scratch.
 
 Every retained DB archive carries its ready private bytes; never prune a shared
 media mirror independently of retained snapshots. Escrow secrets separately.

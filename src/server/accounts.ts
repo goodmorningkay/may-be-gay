@@ -37,7 +37,7 @@ export async function claimUsername(input: Request | Headers | SessionPrincipal,
 }
 export async function listAccountSessions(input: Request | Headers | SessionPrincipal) {
   const p = await requireUser(input);
-  const rows = await getDatabase().select({ id: session.id, createdAt: session.createdAt }).from(session).where(eq(session.userId, p.userId));
+  const rows = await getDatabase().select({ id: session.id, createdAt: session.createdAt, expiresAt: session.expiresAt }).from(session).where(eq(session.userId, p.userId));
   return rows.map(row => ({ ...row, current: row.id === p.sessionId }));
 }
 export async function revokeAccountSessions(input: Request | Headers | SessionPrincipal, sessionId?: string) {

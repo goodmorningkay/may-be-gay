@@ -14,7 +14,7 @@ import { activePublication, assetIdSchema, enqueueMediaDeletion, enqueuePublicPu
 
 const locator = { version: z.literal(1), assetId: assetIdSchema, token: z.string().uuid() };
 const mediaJobPayload = z.discriminatedUnion("action", [
-  z.object({ ...locator, action: z.enum(["process", "expire", "reconcileAsset"]), periodic: z.literal(true).optional() }).strict(),
+  z.object({ ...locator, action: z.enum(["process", "expire", "reconcileAsset", "trim"]), periodic: z.literal(true).optional() }).strict(),
   z.object({ version: z.literal(1), action: z.literal("reconcile"), ownerId: z.string().min(1).max(200), eventId: z.string().regex(/^[0-9]+$/).optional() }).strict(),
   z.object({ version: z.literal(1), action: z.literal("sweep"), cursor: assetIdSchema.optional(), sweepId: z.string().uuid() }).strict(),
 ]);
@@ -195,26 +195,29 @@ async function processAsset(assetId: string, token: string) {
     reserved.release();
   }
 }
-async function reconcileAsset(assetId: string, token: string, expireOnly = false) {
-  const storage = getMediaStorage(); getMediaPurge(storage);
+async function reconcileAsset(assetId: string, token: string, mode: "reconcileAsset" | "expire" | "trim") {
+  const storage = getMediaStorage();
+  if (mode !== "trim") getMediaPurge(storage);
   await getDatabase().transaction(async tx => {
     const [snapshot] = await tx.select().from(mediaStorage).where(eq(mediaStorage.assetId, assetId));
     if (!snapshot || snapshot.token !== token) return;
     const owner = await lockMediaOwner(tx, snapshot.ownerId, true);
     const [row] = await tx.select().from(mediaStorage).where(eq(mediaStorage.assetId, assetId)).for("update");
     if (!row || row.token !== token) return;
+    if (mode === "trim" && row.state !== "ready") return;
     const abandoned = ["uploading", "queued"].includes(row.state) && row.expiresAt.getTime() <= Date.now();
-    if (!owner || row.state === "deleting" || row.state === "rejected" || abandoned) {
+    if (mode !== "trim" && (!owner || row.state === "deleting" || row.state === "rejected" || abandoned)) {
       // DB reference constraints remain the final guard against accidental removal.
       if (await retainedMedia(tx, assetId)) return;
       await tx.update(mediaStorage).set({ state: "deleting", updatedAt: new Date() }).where(eq(mediaStorage.assetId, assetId));
       await enqueueMediaDeletion(tx, row); return;
     }
-    if (expireOnly || row.state !== "ready") return;
+    if (mode === "expire" || row.state !== "ready") return;
     // Includes final-object-exists retries and live publications: interrupted
     // locator temporaries must disappear before a peak reservation is released.
     if (storage instanceof LocalMediaStorage) await cleanAssetTemporaries(storage, row);
     await trimReadyAsset(tx, storage, row);
+    if (mode === "trim") return;
     if (row.revokingKey) { await enqueuePublicPurge(tx, row, row.revokingKey); return; }
     const [live] = await tx.select({ live: activePublication(mediaStorage.assetId) }).from(mediaStorage).where(eq(mediaStorage.assetId, assetId));
     if (live.live) return;
@@ -230,8 +233,9 @@ async function reconcileAsset(assetId: string, token: string, expireOnly = false
 export async function processMediaJob(payload: unknown): Promise<void> {
   const data = mediaJobPayload.parse(payload);
   if (data.action === "process") return processAsset(data.assetId, data.token);
-  if (data.action === "expire") return reconcileAsset(data.assetId, data.token, true);
-  if (data.action === "reconcileAsset") return reconcileAsset(data.assetId, data.token);
+  if (data.action === "expire" || data.action === "reconcileAsset" || data.action === "trim") {
+    return reconcileAsset(data.assetId, data.token, data.action);
+  }
   if (data.action === "reconcile") {
     const rows = await getDatabase().select({ id: mediaStorage.assetId, token: mediaStorage.token }).from(mediaStorage).where(eq(mediaStorage.ownerId, data.ownerId));
     // Exactly one job per asset per reconciliation job; duplicate execution safe.
