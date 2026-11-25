@@ -79,3 +79,20 @@ it("keeps a media claim unstarted during a snapshot longer than the job deadline
     await running;
   }
 });
+
+it.each(["journal", "snapshot"] as const)("fails the worker when a scheduled %s never settles", async kind => {
+  vi.useFakeTimers();
+  vi.mocked(archiveSchedule).mockImplementation(async (_, scheduled) => {
+    if (scheduled === kind) await new Promise<void>(() => {});
+  });
+  const queue = {
+    sql: Object.assign(vi.fn(async () => []), { json: (v: unknown) => v }),
+    claim: vi.fn(),
+  } as unknown as Queue;
+  const running = runWorker(queue, new AbortController().signal);
+  const interrupted = expect(running).rejects.toThrow("ARCHIVE_TIMEOUT");
+  await vi.advanceTimersByTimeAsync(200_000);
+  await interrupted;
+  expect(queue.claim).not.toHaveBeenCalled();
+  expect(vi.getTimerCount()).toBe(0);
+});

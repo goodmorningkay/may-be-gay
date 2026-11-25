@@ -10,7 +10,7 @@ import { serviceState } from "../service-state";
 export type ClaimProcessor = (claim: Claim, signal: AbortSignal) => Promise<string | undefined>;
 
 export class WorkerInterruption extends Error {
-  constructor(readonly code: "PROCESSOR_TIMEOUT" | "JOB_LEASE_LOST" | "WORKER_SHUTDOWN" | "MAINTENANCE_TIMEOUT") {
+  constructor(readonly code: "PROCESSOR_TIMEOUT" | "JOB_LEASE_LOST" | "WORKER_SHUTDOWN" | "MAINTENANCE_TIMEOUT" | "ARCHIVE_TIMEOUT") {
     super(code);
   }
 }
@@ -76,13 +76,13 @@ export async function executeClaim(
   }
 }
 
-async function runMaintenanceWithTimeout(sql: WorkerSql, timeoutMs = 25_000) {
+async function withWorkerDeadline(work: Promise<void>, timeoutMs: number, code: "MAINTENANCE_TIMEOUT" | "ARCHIVE_TIMEOUT") {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     await Promise.race([
-      maintain(sql),
+      work,
       new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new WorkerInterruption("MAINTENANCE_TIMEOUT")), timeoutMs);
+        timer = setTimeout(() => reject(new WorkerInterruption(code)), timeoutMs);
       }),
     ]);
   } finally {
@@ -110,7 +110,7 @@ export async function runWorker(queue: Queue, signal: AbortSignal, once = false)
     try {
       await heartbeat();
       if (Date.now() >= maintenanceAt) {
-        await runMaintenanceWithTimeout(queue.sql, 25_000);
+        await withWorkerDeadline(maintain(queue.sql), 25_000, "MAINTENANCE_TIMEOUT");
         maintenanceAt = Date.now() + 30000;
       }
     } catch (error) {
@@ -125,9 +125,14 @@ export async function runWorker(queue: Queue, signal: AbortSignal, once = false)
   const archives = async () => {
     if (once || stop.aborted || Date.now() < archivesAt || !readiness().backup) return;
     try {
-      await archiveSchedule(queue.sql, "journal", stop);
-      if (!stop.aborted) await archiveSchedule(queue.sql, "snapshot", stop);
-    } catch {
+      // The archive tries to abort after 180s. A stuck filesystem operation
+      // can outlive that signal, so fail the worker if the archive never settles.
+      await withWorkerDeadline(archiveSchedule(queue.sql, "journal", stop), 200_000, "ARCHIVE_TIMEOUT");
+      if (!stop.aborted) {
+        await withWorkerDeadline(archiveSchedule(queue.sql, "snapshot", stop), 200_000, "ARCHIVE_TIMEOUT");
+      }
+    } catch (error) {
+      if (error instanceof WorkerInterruption) throw error;
       console.error('{"code":"ARCHIVE_SCHEDULE_FAILED"}');
     } finally {
       archivesAt = Date.now() + 10_000;

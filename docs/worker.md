@@ -69,9 +69,11 @@ With BACKUP_KEY_FILE, BACKUP_KEY_ID and BACKUP_LOCAL_ROOT configured, a separate
 bounded archive scheduler claims worker_schedules rows atomically. Full snapshots
 run daily and separate complete journal checkpoints every minute, with failed
 schedules retried after one minute. A dead scheduler's five-minute reservation
-expires. Archives run in-process with a 180-second deadline. The worker starts archives between
-claims so a snapshot can finish before a job needs its media lock. Heartbeats
-and maintenance continue while backups run. The journal sequence in recovery_status
+expires. Archives request cancellation after 180 seconds. If a scheduled archive
+still has not finished after 200 seconds, the worker exits so Docker can restart
+it. The worker starts archives between claims so a snapshot can finish before a
+job needs its media lock. Heartbeats and maintenance continue while backups run.
+The journal sequence in recovery_status
 advances after the encrypted archive commits to the local store. Full checkpoints deliberately include all journal pages;
 sequence gaps from aborted transactions are allowed, missing pages are not.
 

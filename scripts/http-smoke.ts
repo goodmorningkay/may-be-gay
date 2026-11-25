@@ -38,7 +38,7 @@ async function main() {
   let checks = 0;
   try {
     await database.reset();
-    async function fixture(username: string, displayName: string, allowIndexing: boolean) {
+    async function fixture(username: string, displayName: string, allowIndexing: boolean, hiddenLink = "https://private.invalid/hidden") {
       const id = randomUUID();
       await database.db.insert(tables.user).values({ id, name: "PRIVATE ACCOUNT NAME", email: `${id}@private.invalid`, emailVerified: true });
       await database.db.insert(tables.usernameClaims).values({ username, ownerId: id });
@@ -48,7 +48,7 @@ async function main() {
         profileId: profile.id, revisionNumber: 1,
         document: { ...defaultProfileDocument, displayName, pageTitle: displayName, allowIndexing, links: [
           { id: randomUUID(), label: "Public destination", url: "https://example.com/public", visible: true },
-          { id: randomUUID(), label: "PRIVATE HIDDEN LINK", url: "https://private.invalid/hidden", visible: false },
+          { id: randomUUID(), label: "PRIVATE HIDDEN LINK", url: hiddenLink, visible: false },
         ] },
       }).returning();
       await database.db.update(tables.profiles).set({ currentRevisionId: revision.id }).where(eq(tables.profiles.id, profile.id));
@@ -56,6 +56,7 @@ async function main() {
     }
     const alice = await fixture("alice-http", "Alice Sunshine", false);
     const bob = await fixture("bob-http", "Bob Ocean", true);
+    await fixture("malformed-http", "Invalid document", false, "invalid-url");
     const reservation = createServer();
     reservation.listen(0, "127.0.0.1");
     await once(reservation, "listening");
@@ -181,6 +182,8 @@ async function main() {
       }
     }
     await check("unknown-http.may-be.localhost", "/?_rsc=fixture", 404, { rsc: "1" });
+    await check("malformed-http.may-be.localhost", "/", 404);
+    await check("malformed-http.may-be.localhost", "/?_rsc=fixture", 404, { rsc: "1" });
     if (server) {
       // Exercise the actual production SSR logger, using a disposable account
       // and a role-level failure that leaves the maintenance gate operational.

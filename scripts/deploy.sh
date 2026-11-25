@@ -106,7 +106,7 @@ deploy_with_ip() {
     return 1
   fi
   if ! ssh "${ssh_opts[@]}" "${SSH_USER}@${server_ip}" \
-    "cd ${REMOTE_DIR} && ${compose} up -d --no-build --wait --wait-timeout 120 ${UP_SERVICES[*]}"; then
+    "cd ${REMOTE_DIR} && ${compose} up -d --no-build --remove-orphans --wait --wait-timeout 120 ${UP_SERVICES[*]}"; then
     echo "Error: deployment services did not become ready." >&2
     ssh "${ssh_opts[@]}" "${SSH_USER}@${server_ip}" "cd ${REMOTE_DIR} && ${compose} ps -a" || true
     return 1
