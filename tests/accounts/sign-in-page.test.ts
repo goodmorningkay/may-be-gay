@@ -90,12 +90,16 @@ describe("sign-in page", () => {
   it("renders the sign-in form when the visitor is not signed in", async () => {
     mocks.getSession.mockResolvedValue(null);
 
-    const element = await SignInPage({ searchParams: Promise.resolve({ username: "alice" }) });
+    const element = await SignInPage({ searchParams: Promise.resolve({ username: "alice", returnTo: "/preview" }) });
     expect(mocks.redirect).not.toHaveBeenCalled();
     expect(element.props).toMatchObject({
       mode: "sign-in",
       claimUsername: "alice",
+      returnTo: "/preview",
       siteDomain: "may-be.localhost",
     });
+
+    const invalid = await SignInPage({ searchParams: Promise.resolve({ returnTo: "https://evil.invalid" }) });
+    expect(invalid.props.returnTo).toBeUndefined();
   });
 });

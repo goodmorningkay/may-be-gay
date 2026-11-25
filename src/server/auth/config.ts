@@ -4,15 +4,29 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { twoFactor } from "better-auth/plugins";
 import { APIError } from "better-auth/api";
 import { getCurrentAdapter } from "@better-auth/core/context";
+import { getSiteDomain } from "../../domain/hosts";
 import { getDatabase } from "../db";
 import type { Transaction } from "../db/types";
 import * as schema from "../db/schema";
 import { appOrigin } from "../http";
 import { enqueueMail } from "../mail";
 
-export type Admission = { email: string; created: boolean };
+type Admission = { email: string; created: boolean };
+let cachedAuth: { db: ReturnType<typeof getDatabase>; secret: string; siteDomain: string; instance: ReturnType<typeof configureAccountAuth> } | undefined;
+
 /** Never export an unguarded HTTP handler. Admission is supplied only within signup's transaction. */
-export function createAccountAuth() { return configureAccountAuth(getDatabase(), true); }
+export function createAccountAuth() {
+  const db = getDatabase();
+  const secret = process.env.BETTER_AUTH_SECRET;
+  if (!secret || secret.length < 32) throw new Error("Explicit BETTER_AUTH_SECRET of at least 32 characters required");
+  const siteDomain = getSiteDomain();
+  if (cachedAuth && cachedAuth.db === db && cachedAuth.secret === secret && cachedAuth.siteDomain === siteDomain) {
+    return cachedAuth.instance;
+  }
+  const instance = configureAccountAuth(db, true);
+  cachedAuth = { db, secret, siteDomain, instance };
+  return instance;
+}
 /** The caller owns commit/rollback and must withhold responses until commit. */
 export function createAccountAuthInTransaction(tx: Transaction, admission?: Admission) { return configureAccountAuth(tx, false, admission); }
 function configureAccountAuth(db: ReturnType<typeof getDatabase> | Transaction, transactions: boolean, admission?: Admission) {
@@ -53,7 +67,7 @@ function configureAccountAuth(db: ReturnType<typeof getDatabase> | Transaction, 
       crossSubDomainCookies: { enabled: false },
       ipAddress: { disableIpTracking: true },
     },
-    rateLimit: { enabled: true, window: 60, max: 100 },
+    rateLimit: { enabled: false },
     plugins: [twoFactor({ issuer: "may-be.gay", skipVerificationOnEnable: false, totpOptions: { digits: 6, period: 30 } })],
     databaseHooks: {
       user: { create: { before: async data => {

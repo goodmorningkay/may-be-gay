@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
 import { allowedMethods, getSiteDomain, resolveHost } from "@/domain/hosts";
 import { profileEmbedFrameSources } from "@/domain/profile-embeds";
-import { getPublishedProfile } from "@/server/profiles";
+import { hasPublishedProfile } from "@/server/profiles";
 import { serviceState } from "@/server/service-state";
 
 export async function proxy(request: NextRequest) {
@@ -49,21 +49,17 @@ export async function proxy(request: NextRequest) {
     response = new NextResponse("This service is temporarily unavailable.", { status: 503, headers: { "Retry-After": "60" } });
   } else {
     response = NextResponse.next({ request: { headers: requestHeaders } });
-    if (host.kind === "profile" && ["/", "/robots.txt"].includes(request.nextUrl.pathname)) {
+    if (host.kind === "profile" && request.nextUrl.pathname === "/") {
       // Flight can start streaming before a page's notFound() executes, making
       // an unknown profile look like HTTP 200. Resolve public availability
       // before handing any HTML/RSC request to the renderer. The page still
       // performs its own public-only read; no document is passed in headers.
       try {
-        if (!await getPublishedProfile(host.username)) {
-          if (request.nextUrl.pathname === "/") {
-            const unavailable = request.nextUrl.clone();
-            unavailable.pathname = "/profile-unavailable";
-            unavailable.search = "";
-            response = NextResponse.rewrite(unavailable, { status: 404, request: { headers: requestHeaders } });
-          } else {
-            response = new NextResponse("Page not found.", { status: 404 });
-          }
+        if (!await hasPublishedProfile(host.username)) {
+          const unavailable = request.nextUrl.clone();
+          unavailable.pathname = "/profile-unavailable";
+          unavailable.search = "";
+          response = NextResponse.rewrite(unavailable, { status: 404, request: { headers: requestHeaders } });
         }
       } catch {
         console.error("Published profile lookup failed at the request boundary.");

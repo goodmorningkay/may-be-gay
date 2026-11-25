@@ -1,9 +1,9 @@
 "use client";
 
-import "@/components/validation-runtime";
 import { useState, type FormEvent } from "react";
 import Link from "next/link";
-import { reportReasons } from "@/domain/operations";
+import { USERNAME_PATTERN } from "@/domain/hosts";
+import { reportReasons } from "@/domain/report-reasons";
 import type { ReportTarget } from "@/server/operations/reports";
 import { SiteFooter, SiteHeader } from "../site-chrome";
 import chrome from "../site-chrome.module.css";
@@ -14,7 +14,6 @@ type Props = {
   domain: string; username: string; targets: ReportTarget[]; target: string;
   supportEmail?: string; appealsEmail?: string;
 };
-const usernamePattern = "[a-z0-9][a-z0-9\\-]{1,28}[a-z0-9]";
 
 export function SupportWorkspace({ domain, username, targets, target, supportEmail, appealsEmail }: Props) {
   const [problem, setProblem] = useState("");
@@ -76,7 +75,7 @@ export function SupportWorkspace({ domain, username, targets, target, supportEma
               <form action="/support" method="get" className={styles.inlineForm}>
                 <div className={chrome.field}><label htmlFor="find-profile">Profile username</label>
                   <span className={`${chrome.control} ${onboarding.usernameControl} ${styles.supportUsername}`}>
-                    <input id="find-profile" name="username" defaultValue={username} minLength={3} maxLength={30} pattern={usernamePattern}
+                    <input id="find-profile" name="username" defaultValue={username} minLength={3} maxLength={30} pattern={USERNAME_PATTERN}
                       required autoComplete="off" autoCapitalize="none" spellCheck={false} /><span aria-hidden="true">.{domain}</span>
                   </span>
                 </div>
@@ -90,7 +89,7 @@ export function SupportWorkspace({ domain, username, targets, target, supportEma
               </div>
               {username ? <input type="hidden" name="username" value={username} /> :
                 <label className={chrome.field}><span>Report username</span><input className={chrome.control} name="username" minLength={3}
-                  maxLength={30} pattern={usernamePattern} required autoComplete="off" autoCapitalize="none" spellCheck={false} /></label>}
+                  maxLength={30} pattern={USERNAME_PATTERN} required autoComplete="off" autoCapitalize="none" spellCheck={false} /></label>}
               <div className={styles.reportSelects}>
                 <div className={chrome.field}><label htmlFor="report-target">Report target</label>
                   <select id="report-target" className={chrome.control} name="target" defaultValue={target}>

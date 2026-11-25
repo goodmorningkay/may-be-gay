@@ -11,6 +11,9 @@ import { checkAccountIdentity, requireAccountIdentity } from "../account-identit
 
 export type SessionPrincipal = { userId: string; sessionId: string; email: string; emailVerified: boolean; role: "user" | "admin"; authenticatedAt: Date };
 export const RECENT_AUTH_MS = 10 * 60 * 1000;
+function isSessionPrincipal(input: unknown): input is SessionPrincipal {
+  return typeof input === "object" && input !== null && "userId" in input && "sessionId" in input && "authenticatedAt" in input;
+}
 async function sessionBoundary<T>(read: () => Promise<T>): Promise<T> {
   try { return await read(); }
   catch (error) {
@@ -37,20 +40,25 @@ export async function getSession(headers: Headers): Promise<SessionPrincipal | n
     return { userId: record.userId, sessionId: record.sessionId, email: record.email, emailVerified: record.emailVerified, role: record.role === "admin" ? "admin" : "user", authenticatedAt: record.reauthenticatedAt ?? record.createdAt };
   });
 }
-export async function requireUser(input: Request | Headers, options: { recent?: boolean; allowUnverified?: boolean } = {}): Promise<SessionPrincipal> {
+export async function requireUser(input: Request | Headers | SessionPrincipal, options: { recent?: boolean; allowUnverified?: boolean } = {}): Promise<SessionPrincipal> {
   return sessionBoundary(async () => {
-    const headers = input instanceof Headers ? input : input.headers;
-    assertAppHost(headers);
-    if (!(input instanceof Headers) && !["GET", "HEAD", "OPTIONS"].includes(input.method)) assertMutationOrigin(input);
-    const principal = await getSession(headers);
-    if (!principal) throw new AppError(401, "SIGN_IN_REQUIRED", "Please sign in.");
-    if (headers.has("x-account-id")) checkAccountIdentity(principal.userId, requireAccountIdentity(headers));
+    let principal: SessionPrincipal;
+    if (isSessionPrincipal(input)) {
+      principal = input;
+    } else {
+      const headers = input instanceof Headers ? input : input.headers;
+      if (!(input instanceof Headers) && !["GET", "HEAD", "OPTIONS"].includes(input.method)) assertMutationOrigin(input);
+      const found = await getSession(headers);
+      if (!found) throw new AppError(401, "SIGN_IN_REQUIRED", "Please sign in.");
+      if (headers.has("x-account-id")) checkAccountIdentity(found.userId, requireAccountIdentity(headers));
+      principal = found;
+    }
     if (!principal.emailVerified && !options.allowUnverified) throw new AppError(403, "VERIFICATION_REQUIRED", "Verify your email first.");
     if (options.recent && Date.now() - principal.authenticatedAt.getTime() > RECENT_AUTH_MS) throw new AppError(403, "REAUTHENTICATION_REQUIRED", "Confirm your password first.");
     return principal;
   });
 }
-export async function requireAdmin(input: Request | Headers): Promise<SessionPrincipal> {
+export async function requireAdmin(input: Request | Headers | SessionPrincipal): Promise<SessionPrincipal> {
   return sessionBoundary(async () => {
     const principal = await requireUser(input, { recent: true });
     const [proof] = await getDatabase().select({ at: sessionAssurance.secondFactorAt }).from(sessionAssurance)

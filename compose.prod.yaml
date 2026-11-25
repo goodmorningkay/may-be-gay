@@ -34,10 +34,7 @@ x-runtime-environment: &runtime-environment
   BACKUP_LOCAL_ROOT: /app/var/backups
   BACKUP_KEY_FILE: /app/var/secrets/backup.key
   BACKUP_KEY_ID: ${BACKUP_KEY_ID:-prod-v1}
-  NATIVE_PARSER_LOCK_FILE: /app/var/native/parser.lock
-  OPERATIONS_LOG_ROOT: /app/var/logs
   OPERATIONS_DISK_PATH: /app/var/backups
-  OPERATIONS_CERTIFICATES: ${OPERATIONS_CERTIFICATES:-false}
   OPERATOR_IDENTITY: ${OPERATOR_IDENTITY:-}
   OPERATOR_JURISDICTION: ${OPERATOR_JURISDICTION:-}
   POLICY_AUDIENCE_AGE: ${POLICY_AUDIENCE_AGE:-}
@@ -97,7 +94,6 @@ services:
     environment: *runtime-environment
     volumes:
       - service_state:/app/var/service:ro
-      - native_lock:/app/var/native
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -123,10 +119,8 @@ services:
       BACKUP_DATABASE_URL: ${BACKUP_DATABASE_URL:?BACKUP_DATABASE_URL is required}
     volumes:
       - service_state:/app/var/service:ro
-      - operations_logs:/app/var/logs
       - recovery_work:/app/var/recovery
       - backup_data:/app/var/backups
-      - native_lock:/app/var/native
       - ./secrets/backup.key:/app/var/secrets/backup.key:ro
     depends_on:
       migrate:
@@ -140,25 +134,6 @@ services:
     mem_limit: 1536m
     cpus: 1.0
     stop_grace_period: 30s
-    logging: *bounded-logs
-    networks: [web, database]
-    restart: unless-stopped
-
-  checks:
-    build:
-      context: .
-      target: worker
-    command: [node, --conditions=react-server, --import, tsx, scripts/check-operations.ts, --watch]
-    environment: *runtime-environment
-    volumes:
-      - backup_data:/app/var/backups:ro
-      - operations_logs:/app/var/logs
-    depends_on:
-      worker:
-        condition: service_healthy
-    mem_limit: 192m
-    cpus: 0.25
-    stop_grace_period: 40s
     logging: *bounded-logs
     networks: [web, database]
     restart: unless-stopped
@@ -196,7 +171,5 @@ volumes:
   caddy_data:
   caddy_config:
   service_state:
-  operations_logs:
   recovery_work:
   backup_data:
-  native_lock:

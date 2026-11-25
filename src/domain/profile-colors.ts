@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "./zod";
 
 export const hexColorSchema = z.string().regex(/^#[0-9a-f]{6}$/i, "Use a six-digit hex colour.");
 

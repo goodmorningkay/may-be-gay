@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ProfileDocument } from "@/domain/profile";
 import type { PublicMediaMap } from "@/domain/media";
 import { EditorRequestError, type FieldErrors } from "@/domain/editor";
-import { checked, mediaListSchema, requestJson, type MediaList } from "./api";
+import { checked, mediaListSchema, requestJson, type MediaAsset, type MediaList } from "./api";
 import { EditorIcon } from "./editor-icon";
 import { Field } from "./fields";
 import styles from "./editor.module.css";
@@ -14,9 +14,9 @@ const POLL_DELAYS_MS = [400, 600, 1000, 1500, 2000, 3000];
 const MAX_POLL_ATTEMPTS = 24;
 function pollDelayMs(attempt: number) { return POLL_DELAYS_MS[Math.min(attempt, POLL_DELAYS_MS.length - 1)]; }
 function bytes(value: number) { return `${(value / MiB).toFixed(1)} MiB`; }
-function assetName(asset: MediaList["assets"][number]) { return `${asset.kind === "image" ? "Image" : "Audio"} ${asset.id.slice(0, 8)}${asset.width && asset.height ? ` · ${asset.width} × ${asset.height}` : ""}${asset.durationMs ? ` · ${Math.ceil(asset.durationMs / 1000)}s` : ""}`; }
-export function MediaLibrary({ profileId, document: d, errors, disabled, onChange, onMedia }: {
-  profileId: string; document: ProfileDocument; errors: FieldErrors; disabled: boolean; onChange: (document: ProfileDocument) => void; onMedia: (map: PublicMediaMap) => void;
+function assetName(asset: MediaAsset) { return `${asset.kind === "image" ? "Image" : "Audio"} ${asset.id.slice(0, 8)}${asset.width && asset.height ? ` · ${asset.width} × ${asset.height}` : ""}${asset.durationMs ? ` · ${Math.ceil(asset.durationMs / 1000)}s` : ""}`; }
+export function MediaLibrary({ profileId, document: d, errors, onChange, onMedia }: {
+  profileId: string; document: ProfileDocument; errors: FieldErrors; onChange: (document: ProfileDocument) => void; onMedia: (map: PublicMediaMap) => void;
 }) {
   const [list, setList] = useState<MediaList | null>(null);
   const [problem, setProblem] = useState<EditorRequestError | null>(null);
@@ -86,7 +86,7 @@ export function MediaLibrary({ profileId, document: d, errors, disabled, onChang
     } catch (error) { if (life.alive && !controller.signal.aborted) setProblem(error as EditorRequestError); }
     finally { if (life.alive) setWorking(false); }
   }
-  const unavailable = disabled || working || !list || list.quota.uploadsPaused || !list.quota.globalCapacityAvailable || list.usage.chargedBytes >= list.quota.limitBytes;
+  const unavailable = working || !list || list.quota.uploadsPaused || !list.quota.globalCapacityAvailable || list.usage.chargedBytes >= list.quota.limitBytes;
   function selector(name: string, label: string, kind: "image" | "audio", value: string | null | undefined, change: (id: string | null) => void) {
     const choices = list?.assets.filter(asset => asset.kind === kind && asset.state === "ready") ?? [];
     const selected = value?.toLowerCase();
@@ -106,7 +106,7 @@ export function MediaLibrary({ profileId, document: d, errors, disabled, onChang
       <div className={styles.choose}>
         <span className={styles.button} aria-hidden="true">Choose</span>
         <select id={id} aria-invalid={Boolean(error)} aria-describedby={error ? `${id}-error` : undefined}
-          disabled={disabled} value={selected ?? ""} onChange={e => change(e.target.value || null)}>
+          value={selected ?? ""} onChange={e => change(e.target.value || null)}>
           <option value="">None</option>{selected && !asset ? <option value={selected} disabled>Selected asset unavailable</option> : null}
           {choices.map(asset => <option key={asset.id} value={asset.id.toLowerCase()}>{assetName(asset)}</option>)}
         </select>
@@ -124,10 +124,10 @@ export function MediaLibrary({ profileId, document: d, errors, disabled, onChang
     {selector("backgroundAssetId", "Background image", "image", d.backgroundAssetId, id => onChange({ ...d, backgroundAssetId: id }))}
     {selector("music.assetId", "Profile music", "audio", d.music?.assetId, id => onChange({ ...d, music: id ? { assetId: id, attribution: d.music?.attribution ?? "" } : null }))}
     </div>
-    {d.music ? <Field name="music.attribution" label="Music rights / attribution" hint="Required. Name the artist and track (and any permission or licence). Shown on your profile player." errors={errors}>{props => <textarea {...props} disabled={disabled} rows={3} maxLength={300} value={d.music?.attribution ?? ""} onChange={e => { if (d.music) onChange({ ...d, music: { ...d.music, attribution: e.target.value } }); }} />}</Field> : null}
+    {d.music ? <Field name="music.attribution" label="Music rights / attribution" hint="Required. Name the artist and track (and any permission or licence). Shown on your profile player." errors={errors}>{props => <textarea {...props} rows={3} maxLength={300} value={d.music?.attribution ?? ""} onChange={e => { if (d.music) onChange({ ...d, music: { ...d.music, attribution: e.target.value } }); }} />}</Field> : null}
     <div className={styles.toggleField}>
       <label className={styles.checkRow}>Click to enter
-        <input id="field-clickToEnter" className={styles.switch} type="checkbox" role="switch" disabled={disabled}
+        <input id="field-clickToEnter" className={styles.switch} type="checkbox" role="switch"
           checked={Boolean(d.clickToEnter)} onChange={e => {
             if (e.target.checked) onChange({ ...d, clickToEnter: true });
             else { const { clickToEnter: _clickToEnter, ...rest } = d; void _clickToEnter; onChange(rest); }
@@ -166,7 +166,7 @@ export function MediaLibrary({ profileId, document: d, errors, disabled, onChang
       <ul className={styles.assetList}>{list?.assets.map(asset => <li key={asset.id}>
         {asset.kind === "image" && asset.state === "ready" ? <img src={`/api/media/${asset.id}/content`} width={56} height={56} alt="" loading="lazy" /> : null}
         <div><strong>{assetName(asset)}</strong><p className={styles.hint}>{asset.state}{asset.bytes ? ` · ${bytes(asset.bytes)}` : ""}{asset.state === "rejected" ? " · Validation failed. Files are cleaned up automatically; the latest 20 failures are kept for feedback. Choose a new file within the limits." : ""}{["quarantined", "processing"].includes(asset.state) ? " · Waiting for private validation" : ""}</p></div>
-        {asset.state !== "rejected" ? <button type="button" disabled={disabled || working} aria-label={`Delete ${assetName(asset)}`} onClick={() => void remove(asset.id)}>Delete</button> : null}
+        {asset.state !== "rejected" ? <button type="button" disabled={working} aria-label={`Delete ${assetName(asset)}`} onClick={() => void remove(asset.id)}>Delete</button> : null}
       </li>)}</ul>{list?.assets.length === 0 ? <p>Your library is empty.</p> : null}
     </details>
   </section>;

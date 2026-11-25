@@ -19,11 +19,11 @@ export const recoveryPayloadSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("profile-suspension"), ownerId, profileId: z.uuid(), suspended: z.boolean() }).strict(),
   z.object({ action: z.literal("remove-media"), ownerId, assetId: z.uuid() }).strict(),
 ]);
-export type RecoveryPayload = z.infer<typeof recoveryPayloadSchema>;
+type RecoveryPayload = z.infer<typeof recoveryPayloadSchema>;
 export async function journal(tx: Transaction, payload: RecoveryPayload) {
   await tx.insert(recoveryEvents).values({ payload: recoveryPayloadSchema.parse(payload) });
 }
-export async function queueAccountDeletion(tx: Transaction, ownerId: string) {
+async function queueAccountDeletion(tx: Transaction, ownerId: string) {
   // No owner FK: this job must survive the hard deletion it performs.
   await tx.insert(jobs).values({ kind: "account_deletion", idempotencyKey: `operations:delete:${ownerId}`, maxAttempts: 20,
     payload: { version: 1, ownerId } }).onConflictDoNothing();

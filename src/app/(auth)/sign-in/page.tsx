@@ -2,7 +2,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { getSiteDomain } from "@/domain/hosts";
 import { AuthForm } from "@/components/auth/auth-form";
-import { resolveSignedInPath } from "@/domain/auth-redirect";
+import { readReturnTo, resolveSignedInPath } from "@/domain/auth-redirect";
 import { readClaimUsername } from "@/domain/username-intent";
 import { getSession } from "@/server/auth/session";
 
@@ -20,5 +20,5 @@ export default async function Page({
       emailVerified: session.emailVerified,
     }));
   }
-  return <AuthForm siteDomain={getSiteDomain()} mode="sign-in" claimUsername={readClaimUsername(params.username)} />;
+  return <AuthForm siteDomain={getSiteDomain()} mode="sign-in" claimUsername={readClaimUsername(params.username)} returnTo={readReturnTo(params.returnTo)} />;
 }

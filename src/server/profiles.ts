@@ -1,5 +1,5 @@
 import "server-only";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { getProfileAssetIds, getPublicDocument, type ProfileDocument } from "@/domain/profile";
 import type { PublicMediaMap } from "@/domain/media";
 import { getPublicMedia } from "@/server/media/service";
@@ -7,13 +7,45 @@ import { isValidUsername } from "@/domain/hosts";
 import { getDatabase } from "@/server/db";
 import { profiles, profileRevisions, user, usernameClaims } from "@/server/db/schema";
 
-export type PublishedProfile = {
+type PublishedProfile = {
   id: string;
   username: string;
   revisionId: string;
   document: ProfileDocument;
   media?: PublicMediaMap;
 };
+
+function publishedProfileWhere(username: string) {
+  return and(
+    eq(usernameClaims.username, username),
+    isNull(usernameClaims.retiredAt),
+    isNull(user.suspendedAt),
+    eq(user.emailVerified, true),
+    isNull(user.deletedAt),
+    isNull(profiles.suspendedAt),
+    isNull(profiles.deletedAt),
+    eq(profileRevisions.schemaVersion, 1),
+  );
+}
+
+/** Lightweight availability check for the request boundary (no JSONB document, Zod parse, or media query). */
+export async function hasPublishedProfile(username: string): Promise<boolean> {
+  if (!isValidUsername(username)) return false;
+  if (process.env.NODE_ENV === "development" && !process.env.DATABASE_URL) return false;
+
+  const [published] = await getDatabase().select({ ok: sql<number>`1` })
+    .from(usernameClaims)
+    .innerJoin(user, eq(usernameClaims.ownerId, user.id))
+    .innerJoin(profiles, eq(profiles.ownerId, user.id))
+    .innerJoin(profileRevisions, and(
+      eq(profileRevisions.id, profiles.currentRevisionId),
+      eq(profileRevisions.profileId, profiles.id),
+    ))
+    .where(publishedProfileWhere(username))
+    .limit(1);
+
+  return Boolean(published);
+}
 
 /** Public only: no session access, draft joins, wildcard projections, or shared cache. */
 export async function getPublishedProfile(username: string): Promise<PublishedProfile | null> {
@@ -35,16 +67,7 @@ export async function getPublishedProfile(username: string): Promise<PublishedPr
       eq(profileRevisions.id, profiles.currentRevisionId),
       eq(profileRevisions.profileId, profiles.id),
     ))
-    .where(and(
-      eq(usernameClaims.username, username),
-      isNull(usernameClaims.retiredAt),
-      isNull(user.suspendedAt),
-      eq(user.emailVerified, true),
-      isNull(user.deletedAt),
-      isNull(profiles.suspendedAt),
-      isNull(profiles.deletedAt),
-      eq(profileRevisions.schemaVersion, 1),
-    )).limit(1);
+    .where(publishedProfileWhere(username)).limit(1);
 
   if (!published) return null;
   try {

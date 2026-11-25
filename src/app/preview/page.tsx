@@ -12,7 +12,6 @@ import chrome from "@/components/site-chrome.module.css";
 import styles from "./preview.module.css";
 
 export const dynamic = "force-dynamic";
-export const revalidate = 0;
 export const metadata: Metadata = { title: "Private draft preview", robots: { index: false, follow: false } };
 
 export default async function Preview() {

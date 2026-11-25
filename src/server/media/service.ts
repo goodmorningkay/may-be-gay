@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { and, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { PublicMedia, PublicMediaMap } from "@/domain/media";
-import { MAX_PRIVATE_MEDIA_OBJECTS } from "@/domain/media";
+import { MAX_ASSETS, MAX_PRIVATE_MEDIA_OBJECTS, MAX_REJECTION_FEEDBACK } from "@/domain/media";
 import { getDatabase } from "@/server/db";
 import type { Transaction } from "@/server/db/types";
 import { lockMediaForBackupConsistency } from "@/server/db/maintenance-lock";
@@ -11,14 +11,14 @@ import { draftMedia, jobs, media, revisionMedia, user } from "@/server/db/schema
 import { accountQuotas, DEFAULT_ACCOUNT_MEDIA_LIMIT_BYTES, DEFAULT_TOTAL_MEDIA_LIMIT_BYTES, serviceSettings } from "@/server/db/schema-settings";
 import { mediaStorage, type MediaObject } from "@/server/db/schema-media";
 import { capacity, invalidMedia, MediaError, storageFailure } from "./errors";
-import { MAX_ASSETS, MAX_REJECTION_FEEDBACK, RESERVATION_MS, reservationBytes, privateObjectSlots, type MediaKind } from "./limits";
+import { RESERVATION_MS, reservationBytes, privateObjectSlots, type MediaKind } from "./limits";
 import { cleanAssetTemporaries, getMediaStorage, objectKeys, publicObjectKey } from "./storage";
 import { getMediaPurge } from "./purge";
-import { withUploadFile } from "./validation";
+import { withUploadFile } from "./upload";
 import { checkMediaEditor } from "./identity";
 
 export const assetIdSchema = z.string().uuid().transform(value => value.toLowerCase());
-export type StorageRow = typeof mediaStorage.$inferSelect;
+type StorageRow = typeof mediaStorage.$inferSelect;
 function ids(input: string[]): string[] {
   if (input.length > MAX_ASSETS || input.some(id => !assetIdSchema.safeParse(id).success)) throw invalidMedia();
   return [...new Set(input.map(id => id.toLowerCase()))].sort();
@@ -36,7 +36,7 @@ export async function lockMediaCapacity(tx: Transaction, ownerId: string) {
   const [quota] = await tx.select().from(accountQuotas).where(eq(accountQuotas.userId, ownerId)).for("update");
   return { settings, quota };
 }
-export async function mediaUsage(tx: Transaction, ownerId: string) {
+async function mediaUsage(tx: Transaction, ownerId: string) {
   const [totals] = await tx.select({
     total: sql<number>`coalesce(sum(${mediaStorage.chargedBytes}), 0)::float8`,
     owner: sql<number>`coalesce(sum(case when ${mediaStorage.ownerId} = ${ownerId} then ${mediaStorage.chargedBytes} else 0 end), 0)::float8`,
@@ -110,14 +110,15 @@ export async function uploadMedia(ownerId: string, kind: MediaKind, body: Readab
     throw error;
   }
 }
-export async function assertOwnedReadyMedia(tx: Transaction, ownerId: string, assetIds: string[]): Promise<void> {
+export async function assertOwnedReadyMedia(tx: Transaction, ownerId: string, assetIds: string[]): Promise<Map<string, MediaKind>> {
   const selected = ids(assetIds);
-  if (!selected.length) return;
+  if (!selected.length) return new Map();
   await lockMediaOwner(tx, ownerId);
-  const rows = await tx.select({ id: media.id }).from(media).innerJoin(mediaStorage, eq(mediaStorage.assetId, media.id))
+  const rows = await tx.select({ id: media.id, kind: media.kind }).from(media).innerJoin(mediaStorage, eq(mediaStorage.assetId, media.id))
     .where(and(eq(media.ownerId, ownerId), eq(mediaStorage.ownerId, ownerId), inArray(media.id, selected), eq(media.state, "ready"), eq(mediaStorage.state, "ready"), isNull(media.deletedAt)))
     .orderBy(media.id).for("update");
   if (rows.length !== selected.length) throw new MediaError(422, "MEDIA_NOT_READY", "Use only your ready media assets.");
+  return new Map(rows.map(row => [row.id, row.kind as MediaKind]));
 }
 function descriptor(object: MediaObject, url: string): PublicMedia {
   return { url, contentType: object.contentType, ...(object.width ? { width: object.width } : {}), ...(object.height ? { height: object.height } : {}), ...(object.durationMs ? { durationMs: object.durationMs } : {}) };
@@ -125,14 +126,17 @@ function descriptor(object: MediaObject, url: string): PublicMedia {
 export async function publishOwnedMedia(tx: Transaction, ownerId: string, assetIds: string[], signal?: AbortSignal): Promise<PublicMediaMap> {
   signal?.throwIfAborted();
   const selected = ids(assetIds);
-  await assertOwnedReadyMedia(tx, ownerId, selected);
   if (!selected.length) return {};
-  const storage = getMediaStorage(); getMediaPurge(storage);
-  const rows = await tx.select().from(mediaStorage).where(and(eq(mediaStorage.ownerId, ownerId), inArray(mediaStorage.assetId, selected))).orderBy(mediaStorage.assetId).for("update");
-  const result: PublicMediaMap = {};
   // Maximum three profile fields; bound storage time held in the caller's tx.
-  if (rows.length > 3) throw invalidMedia();
-  for (const row of rows) {
+  if (selected.length > 3) throw invalidMedia();
+  await lockMediaOwner(tx, ownerId);
+  const rows = await tx.select({ ledger: mediaStorage }).from(media).innerJoin(mediaStorage, eq(mediaStorage.assetId, media.id))
+    .where(and(eq(media.ownerId, ownerId), eq(mediaStorage.ownerId, ownerId), inArray(media.id, selected), eq(media.state, "ready"), eq(mediaStorage.state, "ready"), isNull(media.deletedAt)))
+    .orderBy(media.id).for("update");
+  if (rows.length !== selected.length) throw new MediaError(422, "MEDIA_NOT_READY", "Use only your ready media assets.");
+  const storage = getMediaStorage(); getMediaPurge(storage);
+  const result: PublicMediaMap = {};
+  for (const { ledger: row } of rows) {
     signal?.throwIfAborted();
     if (row.revokingKey) throw new MediaError(503, "MEDIA_REVOCATION_PENDING", "Media cleanup is in progress. Try publishing again shortly.");
     if (!row.display || row.publicBudgetBytes < row.display.bytes) throw invalidMedia();
@@ -241,16 +245,24 @@ export async function listOwnedMedia(ownerId: string, expectedProfileId?: string
 }
 export async function readPrivateContent(ownerId: string, assetId: string) {
   if (!assetIdSchema.safeParse(assetId).success) throw new MediaError(404, "MEDIA_NOT_FOUND", "Media asset not found.");
-  return getDatabase().transaction(async tx => {
-    await lockMediaOwner(tx, ownerId);
-    const [row] = await tx.select({ ledger: mediaStorage }).from(mediaStorage).innerJoin(media, eq(media.id, mediaStorage.assetId))
-      .where(and(eq(mediaStorage.assetId, assetId.toLowerCase()), eq(media.ownerId, ownerId), eq(mediaStorage.ownerId, ownerId), eq(media.state, "ready"), eq(mediaStorage.state, "ready"), isNull(media.deletedAt)));
-    if (!row?.ledger.display) throw new MediaError(404, "MEDIA_NOT_FOUND", "Media asset not found.");
-    const object = row.ledger.display;
-    const body = await getMediaStorage().get("private", object.key, object.bytes);
-    if (body.length !== object.bytes) throw storageFailure();
-    return { body, object };
-  });
+  const [row] = await getDatabase().select({
+    ledger: mediaStorage,
+    mediaId: media.id,
+    deletedAt: user.deletedAt,
+    suspendedAt: user.suspendedAt,
+    emailVerified: user.emailVerified,
+  }).from(user)
+    .leftJoin(mediaStorage, and(eq(mediaStorage.assetId, assetId.toLowerCase()), eq(mediaStorage.ownerId, ownerId), eq(mediaStorage.state, "ready")))
+    .leftJoin(media, and(eq(media.id, mediaStorage.assetId), eq(media.ownerId, ownerId), eq(media.state, "ready"), isNull(media.deletedAt)))
+    .where(eq(user.id, ownerId));
+  if (!row || row.deletedAt || row.suspendedAt || !row.emailVerified) {
+    throw new MediaError(403, "ACCOUNT_UNAVAILABLE", "An active verified account is required.");
+  }
+  if (!row.mediaId || !row.ledger?.display) throw new MediaError(404, "MEDIA_NOT_FOUND", "Media asset not found.");
+  const object = row.ledger.display;
+  const body = await getMediaStorage().get("private", object.key, object.bytes);
+  if (body.length !== object.bytes) throw storageFailure();
+  return { body, object };
 }
 export async function readLocalPublicContent(key: string) {
   const storage = getMediaStorage();

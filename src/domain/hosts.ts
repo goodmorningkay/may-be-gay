@@ -8,8 +8,10 @@ export const reservedUsernames = new Set([
   "privacy", "terms", "legal", "security", "billing", "dashboard", "editor", "preview",
 ]);
 
+export const USERNAME_PATTERN = "[a-z0-9][a-z0-9\\-]{1,28}[a-z0-9]";
+
 export type SiteDomain = "may-be.gay" | "may-be.localhost";
-export type ResolvedHost =
+type ResolvedHost =
   | { kind: "apex" }
   | { kind: "app" }
   | { kind: "media" }
@@ -58,6 +60,11 @@ const appPages = new Set(["/editor", "/preview", "/account", "/account/security"
 const authPosts = new Set(["sign-up/email", "sign-in/email", "sign-out", "send-verification-email", "request-password-reset", "reset-password", "change-password",
   "two-factor/enable", "two-factor/disable", "two-factor/verify-totp", "two-factor/verify-backup-code", "two-factor/generate-backup-codes", "two-factor/get-totp-uri"]);
 const uuid = "[0-9a-fA-F-]{36}";
+const restoreRevisionPath = new RegExp(`^/api/profile/revisions/${uuid}/restore$`);
+const mediaItemPath = new RegExp(`^/api/media/${uuid}$`);
+const mediaContentPath = new RegExp(`^/api/media/${uuid}/content$`);
+const adminReadPath = /^\/api\/admin\/(reports|accounts|invites|settings|audit)$/;
+const resetPasswordTokenAction = /^reset-password\/[a-zA-Z0-9_-]{1,128}$/;
 
 /** Route/method admission is separate from the handlers' ownership and Origin
  * checks. Public APIs have their own exact host; no wildcard API prefix exists. */
@@ -74,16 +81,16 @@ export function allowedMethods(host: ResolvedHost, pathname: string): readonly s
   if (appPages.has(pathname) || pathname === "/api/health" || pathname === "/api/account/analytics") return readMethods;
   if (pathname === "/api/profile") return ["GET", "HEAD", "PUT"];
   if (["/api/profile/publish", "/api/profile/unpublish", "/api/account/username", "/api/account/reauthenticate", "/api/account/export", "/api/account/delete", "/api/account/form-help", "/api/admin/actions"].includes(pathname)
-    || new RegExp(`^/api/profile/revisions/${uuid}/restore$`).test(pathname)) return ["POST"];
+    || restoreRevisionPath.test(pathname)) return ["POST"];
   if (pathname === "/api/account/session") return ["GET", "HEAD", "DELETE"];
   if (pathname === "/api/media") return ["GET", "HEAD", "POST"];
-  if (new RegExp(`^/api/media/${uuid}$`).test(pathname)) return ["DELETE"];
-  if (new RegExp(`^/api/media/${uuid}/content$`).test(pathname)) return readMethods;
-  if (/^\/api\/admin\/(reports|accounts|invites|settings|audit)$/.test(pathname)) return readMethods;
+  if (mediaItemPath.test(pathname)) return ["DELETE"];
+  if (mediaContentPath.test(pathname)) return readMethods;
+  if (adminReadPath.test(pathname)) return readMethods;
   if (pathname.startsWith("/api/auth/")) {
     const action = pathname.slice("/api/auth/".length);
     if (authPosts.has(action)) return ["POST"];
-    if (["get-session", "verify-email"].includes(action) || /^reset-password\/[A-Za-z0-9_-]{1,512}$/.test(action)) return readMethods;
+    if (["get-session", "verify-email"].includes(action) || resetPasswordTokenAction.test(action)) return readMethods;
   }
   return [];
 }

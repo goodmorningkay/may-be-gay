@@ -1,8 +1,8 @@
-/* eslint-disable @next/next/no-html-link-for-pages -- Full document navigation lets beforeunload protect private unsaved input. */
 "use client";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { EditorCoordinator, changedFields, type EditorAction, type EditorState } from "@/domain/editor";
 import brand from "@/components/brand.module.css";
+import { downloadBlob } from "@/components/download-blob";
 import type { PublicMediaMap } from "@/domain/media";
 import { editorTransport } from "./api";
 import { AppearanceFields } from "./appearance-fields";
@@ -80,10 +80,7 @@ export function ProfileEditor({ initial, siteDomain }: { initial: EditorState; s
   useEffect(() => { if (confirm) dialog.current?.showModal(); else dialog.current?.close(); }, [confirm]);
 
   function downloadDraft() {
-    const blob = new Blob([JSON.stringify(state.local, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob), anchor = window.document.createElement("a");
-    anchor.href = url; anchor.download = `${state.server.username}-private-draft.json`; anchor.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    downloadBlob(new Blob([JSON.stringify(state.local, null, 2)], { type: "application/json" }), `${state.server.username}-private-draft.json`);
   }
   async function confirmAction() {
     const action = confirm; setConfirm(null);
@@ -108,6 +105,7 @@ export function ProfileEditor({ initial, siteDomain }: { initial: EditorState; s
     });
   }
 
+  const saved = !state.conflict && online && !state.busyAction && !state.saving && !state.problem && !errorCount && !state.dirty;
   const status = state.conflict ? "Conflict · your input is retained" : !online ? "Offline · input retained in this tab" : state.busyAction ? "Applying publication change…" : state.saving ? "Saving draft…" : state.problem ? "Save or action needs attention" : errorCount ? "Not saved · check the fields below" : state.dirty ? "Unsaved changes" : "Draft saved";
   const publicUrl = `https://${state.server.username}.${siteDomain}`;
   const published = Boolean(state.server.publishedRevisionId);
@@ -117,7 +115,7 @@ export function ProfileEditor({ initial, siteDomain }: { initial: EditorState; s
   return <div className={`${brand.dark} ${styles.editor}`}>
     <div className={styles.container}>
       <header className={styles.header}>
-        <a className={brand.wordmark} href="/"><span className={brand.brandMark} aria-hidden="true" />may-be.gay</a>
+        <a className={brand.wordmark} href={`https://${siteDomain}`}><span className={brand.brandMark} aria-hidden="true" />may-be.gay</a>
         <a className={styles.button} href="/account">Account</a>
       </header>
       <main>
@@ -127,8 +125,8 @@ export function ProfileEditor({ initial, siteDomain }: { initial: EditorState; s
             <p className={styles.address}>{state.server.username}.{siteDomain}</p>
           </div>
           <div className={styles.saveBar}>
-            <p role="status" className={styles.saveStatus} data-saved={status === "Draft saved"}>
-              {status}{status === "Draft saved" && <span className={styles.srOnly}> · version {state.server.editVersion}</span>}
+            <p role="status" className={styles.saveStatus} data-saved={saved}>
+              {status}{saved && <span className={styles.srOnly}> · version {state.server.editVersion}</span>}
             </p>
             <div className={styles.saveActions}>
               <button type="button" disabled={blocked || state.saving || !online || !state.dirty} onClick={() => void coordinator.flush()}>Save now</button>
@@ -183,7 +181,7 @@ export function ProfileEditor({ initial, siteDomain }: { initial: EditorState; s
                 <div id="panel-links" hidden={section !== "links"} tabIndex={-1}><LinkFields {...fieldProps} edit={linkEdit} onEdit={setLinkEdit} /></div>
                 <div id="panel-embeds" hidden={section !== "embeds"} tabIndex={-1}><EmbedFields {...fieldProps} /></div>
                 <div id="panel-appearance" hidden={section !== "appearance"} tabIndex={-1}><AppearanceFields {...fieldProps} preview={state.preview} /></div>
-                <div id="panel-media" hidden={section !== "media"} tabIndex={-1}><MediaLibrary {...fieldProps} profileId={editorProfileId} disabled={state.busyAction} onMedia={setMedia} /></div>
+                <div id="panel-media" hidden={section !== "media"} tabIndex={-1}><MediaLibrary {...fieldProps} profileId={editorProfileId} onMedia={setMedia} /></div>
                 <div id="panel-discovery" hidden={section !== "discovery"} tabIndex={-1}><DiscoveryFields {...fieldProps} /></div>
               </fieldset>
             </form>

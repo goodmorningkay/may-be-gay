@@ -35,9 +35,7 @@ services:
       MEDIA_STORAGE: local
       MEDIA_LOCAL_ROOT: /private/media
       SERVICE_CLOSED_FILE: /private/service/SERVICE_CLOSED
-      NATIVE_PARSER_LOCK_FILE: /private/native/parser.lock
       NEXT_TELEMETRY_DISABLED: '1'
-      WORKER_USE_BUNDLE: '1'
       HOSTNAME: 0.0.0.0
       E2E_FIXTURE: isolated-browser-acceptance
     volumes: &volumes
@@ -45,7 +43,6 @@ services:
       - mail:/private/mail
       - media:/private/media
       - service:/private/service
-      - native:/private/native
     networks: [private]
     healthcheck:
       test: [CMD, node, -e, "require('http').get({host:'127.0.0.1',port:3000,path:'/',headers:{host:'may-be.localhost'}},r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
@@ -96,6 +93,5 @@ volumes:
   mail:
   media:
   service:
-  native:
   ca:
   config:

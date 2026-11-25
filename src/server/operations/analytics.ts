@@ -3,7 +3,7 @@ import { and, asc, eq, gte, sql } from "drizzle-orm";
 import { analyticsDays, metricSchema } from "@/domain/operations";
 import { getDatabase } from "@/server/db";
 import { dailyLinkMetrics, dailyProfileMetrics, profiles } from "@/server/db/schema";
-import { requireUser } from "@/server/auth/session";
+import { requireUser, type SessionPrincipal } from "@/server/auth/session";
 import { rateLimit } from "@/server/rate-limit";
 import { currentPublic } from "./public";
 export async function recordMetric(username: string, raw: unknown) {
@@ -28,7 +28,7 @@ export async function recordMetric(username: string, raw: unknown) {
     }
   });
 }
-export async function readAnalytics(input: Request | Headers) {
+export async function readAnalytics(input: Request | Headers | SessionPrincipal) {
   const p = await requireUser(input);
   await rateLimit(`operations:analytics:${p.userId}`, 60, 60);
   const db = getDatabase(), days = analyticsDays();

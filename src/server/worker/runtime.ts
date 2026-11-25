@@ -1,62 +1,138 @@
 import { randomUUID } from "node:crypto";
 import os from "node:os";
-import path from "node:path";
 import { setTimeout as pause } from "node:timers/promises";
-import { Queue, type Claim } from "./queue";
-import { runProcessor } from "./process";
+import { Queue, type Claim, type WorkerSql } from "./queue";
+import { dispatch, failureCode } from "./processor";
 import { archiveSchedule } from "./schedules";
-import { readiness } from "./maintenance";
+import { maintain, readiness } from "./maintenance";
 import { serviceState } from "../service-state";
-export async function executeClaim(queue: Queue, claim: Claim, signal: AbortSignal, processor = runProcessor, renewalMs = 10000) {
+
+export type ClaimProcessor = (claim: Claim, signal: AbortSignal) => Promise<string | undefined>;
+
+export class WorkerInterruption extends Error {
+  constructor(readonly code: "PROCESSOR_TIMEOUT" | "JOB_LEASE_LOST" | "WORKER_SHUTDOWN" | "MAINTENANCE_TIMEOUT") {
+    super(code);
+  }
+}
+
+export async function runInProcess(claim: Claim, signal: AbortSignal, sql?: WorkerSql, timeoutMs = 60_000): Promise<string | undefined> {
+  signal.throwIfAborted();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let onAbort: (() => void) | undefined;
+  try {
+    return await Promise.race([
+      new Promise<never>((_, reject) => {
+        onAbort = () => reject(signal.reason);
+        signal.addEventListener("abort", onAbort, { once: true });
+        timer = setTimeout(() => reject(new WorkerInterruption("PROCESSOR_TIMEOUT")), timeoutMs);
+      }),
+      dispatch(claim, sql).then(() => undefined, failureCode),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+    if (onAbort) signal.removeEventListener("abort", onAbort);
+  }
+}
+
+export async function executeClaim(
+  queue: Queue,
+  claim: Claim,
+  signal: AbortSignal,
+  processor?: ClaimProcessor,
+  renewalMs = 10000,
+) {
+  if (signal.aborted) return;
   if (claim.kind === "email" && Date.now() - new Date(claim.created_at).getTime() >= 23 * 3600_000) {
-    await queue.finish(claim, "MAIL_RETRY_WINDOW_EXPIRED", true); return;
+    await queue.finish(claim, "MAIL_RETRY_WINDOW_EXPIRED", true);
+    return;
   }
   const controller = new AbortController();
-  const abort = () => controller.abort();
+  const abort = () => controller.abort(signal.reason instanceof WorkerInterruption
+    ? signal.reason
+    : new WorkerInterruption("WORKER_SHUTDOWN"));
   signal.addEventListener("abort", abort, { once: true });
-  if (signal.aborted) abort();
   let renewing = false;
   const timer = setInterval(async () => {
-    if (renewing) return; renewing = true;
-    try { if (!await queue.renew(claim)) controller.abort(); } catch { controller.abort(); }
-    finally { renewing = false; }
+    if (renewing) return;
+    renewing = true;
+    try {
+      if (!(await queue.renew(claim))) controller.abort(new WorkerInterruption("JOB_LEASE_LOST"));
+    } catch {
+      controller.abort(new WorkerInterruption("JOB_LEASE_LOST"));
+    } finally {
+      renewing = false;
+    }
   }, renewalMs);
   try {
-    const code = await processor(claim, controller.signal);
-    if (!controller.signal.aborted) await queue.finish(claim, code, code === "INVALID_JOB_PAYLOAD");
-  } finally { clearInterval(timer); signal.removeEventListener("abort", abort); }
+    const run = processor ?? ((current: Claim, s: AbortSignal) => runInProcess(current, s, queue.sql));
+    const code = await run(claim, controller.signal);
+    controller.signal.throwIfAborted();
+    await queue.finish(claim, code, code === "INVALID_JOB_PAYLOAD");
+  } finally {
+    clearInterval(timer);
+    signal.removeEventListener("abort", abort);
+  }
 }
+
+async function runMaintenanceWithTimeout(sql: WorkerSql, timeoutMs = 25_000) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      maintain(sql),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new WorkerInterruption("MAINTENANCE_TIMEOUT")), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 export async function runWorker(queue: Queue, signal: AbortSignal, once = false) {
-  if (await serviceState() !== "open") throw new Error("SERVICE_CLOSED");
+  if ((await serviceState()) !== "open") throw new Error("SERVICE_CLOSED");
   const id = `${os.hostname()}:${randomUUID()}`;
-  let ticks = 0, maintaining = false, maintenanceAt = 0;
+  let ticks = 0,
+    maintaining = false,
+    maintenanceAt = 0;
+  const maintenanceStop = new AbortController();
+  const stop = AbortSignal.any([signal, maintenanceStop.signal]);
+  const maintenanceFailure = new Promise<never>((_, reject) => {
+    maintenanceStop.signal.addEventListener("abort", () => reject(maintenanceStop.signal.reason), { once: true });
+  });
   const heartbeat = async () => {
     await queue.sql`insert into worker_heartbeats(id,status) values(${id},${queue.sql.json(readiness())}) on conflict(id) do update set updated_at=now(),status=excluded.status`;
   };
   const tick = async () => {
-    if (maintaining) return; maintaining = true;
+    if (maintaining) return;
+    maintaining = true;
     try {
       await heartbeat();
       if (Date.now() >= maintenanceAt) {
-        const code = await runProcessor({} as Claim, signal, 25000, path.resolve("src/server/worker/maintenance-child.ts"));
-        if (code) throw new Error("MAINTENANCE_FAILED");
+        await runMaintenanceWithTimeout(queue.sql, 25_000);
         maintenanceAt = Date.now() + 30000;
       }
-    } catch { console.error(JSON.stringify({ code: "WORKER_MAINTENANCE_FAILED" })); }
-    finally { maintaining = false; }
+    } catch (error) {
+      if (error instanceof WorkerInterruption) maintenanceStop.abort(error);
+      else console.error(JSON.stringify({ code: "WORKER_MAINTENANCE_FAILED" }));
+    } finally {
+      maintaining = false;
+    }
   };
-  await tick();
-  const timer = setInterval(() => { void tick(); }, 10_000);
+  let timer: ReturnType<typeof setInterval> | undefined;
+  let archiveTimer: ReturnType<typeof setInterval> | undefined;
   let archiving = false;
   const archives = async () => {
-    if (archiving || !readiness().backup || signal.aborted) return;
+    if (archiving || !readiness().backup || stop.aborted) return;
     archiving = true;
-    try { await archiveSchedule(queue.sql, "journal", signal); await archiveSchedule(queue.sql, "snapshot", signal); }
-    catch { console.error('{"code":"ARCHIVE_SCHEDULE_FAILED"}'); }
-    finally { archiving = false; }
+    try {
+      await archiveSchedule(queue.sql, "journal", stop);
+      await archiveSchedule(queue.sql, "snapshot", stop);
+    } catch {
+      console.error('{"code":"ARCHIVE_SCHEDULE_FAILED"}');
+    } finally {
+      archiving = false;
+    }
   };
-  if (!once) void archives();
-  const archiveTimer = once ? undefined : setInterval(() => { void archives(); }, 10000);
   let wakeResolve: (() => void) | undefined;
   let notified = false;
   const wake = () => {
@@ -66,38 +142,56 @@ export async function runWorker(queue: Queue, signal: AbortSignal, once = false)
     resolve?.();
   };
   let listener: { unlisten: () => Promise<void> } | undefined;
-  if (!once && typeof queue.sql.listen === "function") {
-    listener = await queue.sql.listen("may_be_jobs", wake).catch(() => undefined);
-  }
   const waitIdle = async () => {
-    if (notified || signal.aborted) { notified = false; return; }
+    if (notified || stop.aborted) {
+      notified = false;
+      return;
+    }
     await new Promise<void>(resolve => {
       let done = false;
       const finish = () => {
         if (done) return;
         done = true;
         clearTimeout(idleTimer);
-        signal.removeEventListener("abort", finish);
+        stop.removeEventListener("abort", finish);
         if (wakeResolve === finish) wakeResolve = undefined;
         resolve();
       };
       wakeResolve = finish;
       const idleTimer = setTimeout(finish, 500);
-      signal.addEventListener("abort", finish, { once: true });
+      stop.addEventListener("abort", finish, { once: true });
     });
     notified = false;
   };
-  try {
-    do {
+  const work = async () => {
+    await tick();
+    if (stop.aborted) return;
+    timer = setInterval(() => void tick(), 10_000);
+    if (!once) {
+      void archives();
+      archiveTimer = setInterval(() => void archives(), 10_000);
+      if (typeof queue.sql.listen === "function") {
+        listener = await queue.sql.listen("may_be_jobs", wake).catch(() => undefined);
+      }
+    }
+    while (!stop.aborted) {
       await queue.reclaim();
+      if (stop.aborted) break;
       const claim = await queue.claim(++ticks % 8 === 0);
-      if (claim) await executeClaim(queue, claim, signal);
+      if (claim) await executeClaim(queue, claim, stop);
       else if (!once) await waitIdle();
-    } while (!signal.aborted && !once);
+      if (once) break;
+    }
+  };
+  try {
+    await Promise.race([maintenanceFailure, work()]);
   } finally {
-    clearInterval(timer); clearInterval(archiveTimer);
-    await listener?.unlisten().catch(() => {});
-    while (maintaining || archiving) await pause(50);
-    await queue.sql`delete from worker_heartbeats where id=${id}`;
+    clearInterval(timer);
+    clearInterval(archiveTimer);
   }
+  // An interrupted job can still be executing. The CLI exits immediately on
+  // failure and leaves its lease for recovery after the container stops.
+  await listener?.unlisten().catch(() => {});
+  while (maintaining || archiving) await pause(50);
+  await queue.sql`delete from worker_heartbeats where id=${id}`;
 }

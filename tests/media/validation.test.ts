@@ -47,7 +47,8 @@ describe("media byte and parser bounds", () => {
   it.each(["jpeg", "png", "webp"] as const)("decodes %s and makes metadata-free bounded WebP variants", async format => {
     const input = await sharp({ create: { width: 48, height: 24, channels: 3, background: "red" } }).toFormat(format).withMetadata({ exif: { IFD0: { Artist: "PRIVATE ARTIST" } } }).toBuffer();
     const result = await validateMedia(input, "image");
-    expect(result).toMatchObject({ contentType: "image/webp", width: 48, height: 24 });
+    expect(result).toMatchObject({ contentType: "image/webp", width: 48, height: 24, sharedVariants: true });
+    expect(result.display.equals(result.original)).toBe(true);
     const metadata = await sharp(result.original).metadata();
     expect(metadata.exif).toBeUndefined(); expect(metadata.icc).toBeUndefined(); expect(metadata.format).toBe("webp");
     expect(result.original.includes(Buffer.from("PRIVATE ARTIST"))).toBe(false);

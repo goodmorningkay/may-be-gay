@@ -15,9 +15,8 @@ export const metadata = { title: "Administration", robots: { index: false, follo
 export default async function AdminPage() {
   let initial;
   try {
-    const h = await headers();
-    await requireAdmin(h);
-    initial = await readAdmin(h, "reports", new URL("https://app.invalid/?state=open"));
+    const principal = await requireAdmin(await headers());
+    initial = await readAdmin(principal, "reports", new URL("https://app.invalid/?state=open"));
   } catch (error) {
     return <AccessHelp error={error} />;
   }
@@ -33,7 +32,11 @@ export default async function AdminPage() {
         {!readiness.ready && <p><strong>Launch decisions pending</strong>{" "}
           <span className={chrome.muted}>Operator details, policies and monitored support are still pending.</span></p>}
       </div>
-      <AdminPanel initial={JSON.parse(JSON.stringify(initial))} />
+      <AdminPanel initial={{
+        rows: ("rows" in initial && initial.rows ? initial.rows : []).map(row =>
+          Object.fromEntries(Object.entries(row).map(([k, v]) => [k, v instanceof Date ? v.toISOString() : v]))
+        ),
+      }} />
     </main>
   </div></div>;
 }

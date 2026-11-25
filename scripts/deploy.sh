@@ -64,8 +64,8 @@ fi
 COMMIT_SHA="$(git rev-parse --short "$REF")"
 COMMIT_SUBJECT="$(git log -1 --format=%s "$REF")"
 
-BUILD_SERVICES=(migrate app worker checks)
-UP_SERVICES=(app worker checks)
+BUILD_SERVICES=(migrate app worker)
+UP_SERVICES=(app worker)
 if [[ "$WITH_CADDY" == true ]]; then
   BUILD_SERVICES+=(caddy)
   UP_SERVICES+=(caddy)
@@ -99,16 +99,31 @@ deploy_with_ip() {
   ssh "${ssh_opts[@]}" "${SSH_USER}@${server_ip}" \
     "cd ${REMOTE_DIR} && docker compose -f compose.prod.yaml --env-file .env.production build ${BUILD_SERVICES[*]}"
 
-  echo "==> 4/5 Running database migrations and restarting services..."
-  ssh "${ssh_opts[@]}" "${SSH_USER}@${server_ip}" \
-    "cd ${REMOTE_DIR} && docker compose -f compose.prod.yaml --env-file .env.production run -T --rm migrate && docker compose -f compose.prod.yaml --env-file .env.production up -d --no-build ${UP_SERVICES[*]}"
+  echo "==> 4/5 Running database migrations and waiting for services..."
+  local compose="docker compose -f compose.prod.yaml --env-file .env.production"
+  if ! ssh "${ssh_opts[@]}" "${SSH_USER}@${server_ip}" "cd ${REMOTE_DIR} && ${compose} run -T --rm migrate"; then
+    echo "Error: database migration failed." >&2
+    return 1
+  fi
+  if ! ssh "${ssh_opts[@]}" "${SSH_USER}@${server_ip}" \
+    "cd ${REMOTE_DIR} && ${compose} up -d --no-build --wait --wait-timeout 120 ${UP_SERVICES[*]}"; then
+    echo "Error: deployment services did not become ready." >&2
+    ssh "${ssh_opts[@]}" "${SSH_USER}@${server_ip}" "cd ${REMOTE_DIR} && ${compose} ps -a" || true
+    return 1
+  fi
 
   echo "==> 5/5 Verifying health..."
-  ssh "${ssh_opts[@]}" "${SSH_USER}@${server_ip}" \
-    "cd ${REMOTE_DIR} && docker compose -f compose.prod.yaml --env-file .env.production ps && docker compose -f compose.prod.yaml --env-file .env.production exec -T worker node --conditions=react-server --import tsx scripts/check-operations.ts || true"
+  if ! ssh "${ssh_opts[@]}" "${SSH_USER}@${server_ip}" \
+    "cd ${REMOTE_DIR} && ${compose} exec -T worker node --conditions=react-server --import tsx scripts/check-operations.ts"; then
+    echo "Error: worker operations check failed." >&2
+    return 1
+  fi
 
   local health_code
-  health_code="$(curl -fsS -o /dev/null -w '%{http_code}' --max-time 15 https://app.may-be.gay/api/health)"
+  if ! health_code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 https://app.may-be.gay/api/health)" || [[ "$health_code" != 200 ]]; then
+    echo "Error: public health check failed (HTTP ${health_code:-unavailable})." >&2
+    return 1
+  fi
   echo "==> https://app.may-be.gay/api/health -> HTTP ${health_code}"
   echo "==> Deployed ${COMMIT_SHA} successfully!"
 }

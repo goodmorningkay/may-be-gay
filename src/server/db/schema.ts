@@ -9,7 +9,7 @@ const time = (name: string) => timestamp(name, { withTimezone: true, mode: "date
 const createdAt = () => time("created_at").notNull().defaultNow();
 const updatedAt = () => time("updated_at").notNull().defaultNow();
 
-// Better Auth model names and field names are intentional. No auth handler is enabled.
+// Better Auth model names and field names are intentional.
 export const user = pgTable("user", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),

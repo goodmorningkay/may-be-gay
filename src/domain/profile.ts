@@ -1,8 +1,8 @@
-import { z } from "zod";
+import { z } from "./zod";
 import { contrastRatio, hexColorSchema } from "./profile-colors";
 import { maxProfileEmbeds, profileEmbedSchema } from "./profile-embeds";
 
-export { contrastRatio, hexColorSchema, relativeLuminance } from "./profile-colors";
+export { contrastRatio, hexColorSchema } from "./profile-colors";
 
 /** Validate navigation targets without rewriting them or contacting the host. */
 export const linkUrlSchema = z.string().max(2048).refine(
@@ -29,7 +29,7 @@ export const linkUrlSchema = z.string().max(2048).refine(
   "Use a complete HTTP or HTTPS URL without credentials, whitespace, controls or backslashes.",
 );
 
-export const discordHandleSchema = z
+const discordHandleSchema = z
   .string()
   .min(1, "Enter a Discord username.")
   .max(100, "Discord username must be 100 characters or fewer.")
@@ -156,7 +156,7 @@ export function getPublicDocument(value: unknown): ProfileDocument {
   return { ...document, links: document.links.filter((link) => link.visible) };
 }
 
-export const defaultProfileDocument: ProfileDocument = profileDocumentSchema.parse({
+export const defaultProfileDocument: ProfileDocument = {
   schemaVersion: 1,
   displayName: "Your name",
   pronouns: "",
@@ -166,7 +166,7 @@ export const defaultProfileDocument: ProfileDocument = profileDocumentSchema.par
   pageTitle: "Your name",
   pageDescription: "",
   allowIndexing: false,
-});
+} satisfies ProfileDocument;
 
 /** A fresh, explicitly fictional sample; example domains do not claim a user. */
 export function createExampleProfile(): ProfileDocument {

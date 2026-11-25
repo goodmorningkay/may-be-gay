@@ -8,7 +8,7 @@ import { getSiteDomain } from "@/domain/hosts";
 import { AUDIO_BYTES } from "./limits";
 import { providerUnavailable, storageFailure } from "./errors";
 
-export type StorageArea = "private" | "public";
+type StorageArea = "private" | "public";
 export interface MediaStorageAdapter {
   kind: "local" | "s3";
   put(area: StorageArea, key: string, body: Buffer, contentType: string): Promise<void>;
@@ -110,7 +110,7 @@ export class LocalMediaStorage implements MediaStorageAdapter {
   }
   publicUrl(key: string) { assertObjectKey(key); return `${this.origin}/media/${key}`; }
 }
-export type S3Config = { endpoint: string; region: string; privateBucket: string; publicBucket: string; accessKeyId: string; secretAccessKey: string; publicOrigin: string };
+type S3Config = { endpoint: string; region: string; privateBucket: string; publicBucket: string; accessKeyId: string; secretAccessKey: string; publicOrigin: string };
 export class S3MediaStorage implements MediaStorageAdapter {
   readonly kind = "s3" as const;
   readonly client: S3Client;
@@ -146,12 +146,12 @@ export class S3MediaStorage implements MediaStorageAdapter {
   }
   async putFile(area: StorageArea, key: string, file: string, bytes: number, contentType: string) {
     assertObjectKey(key);
-    if ((await stat(file)).size !== bytes || !bytes || bytes > AUDIO_BYTES) throw storageFailure();
+    if (area !== "private" || (await stat(file)).size !== bytes || !bytes || bytes > AUDIO_BYTES) throw storageFailure();
     const digest = createHash("sha256");
     for await (const chunk of createReadStream(file)) digest.update(chunk);
     const sha256 = digest.digest("hex"), stream = createReadStream(file);
     try {
-      await this.client.send(new PutObjectCommand({ Bucket: this.bucket(area), Key: area === "public" ? `media/${key}` : key, Body: stream, ContentLength: bytes,
+      await this.client.send(new PutObjectCommand({ Bucket: this.config.privateBucket, Key: key, Body: stream, ContentLength: bytes,
         ContentType: contentType, CacheControl: "private, no-store", IfNoneMatch: "*", Metadata: { sha256 } }), { abortSignal: AbortSignal.timeout(10000) });
     } catch { throw storageFailure(); }
     finally { stream.destroy(); }
@@ -187,6 +187,7 @@ export class S3MediaStorage implements MediaStorageAdapter {
   }
   publicUrl(key: string) { assertObjectKey(key); return `${this.config.publicOrigin}/media/${key}`; }
 }
+let cachedS3: { signature: string; storage: S3MediaStorage } | undefined;
 export function getMediaStorage(): MediaStorageAdapter {
   // Explicit local-zone storage also supports a production Next build in local
   // HTTPS acceptance. The real production domain has no local-storage fallback.
@@ -197,6 +198,10 @@ export function getMediaStorage(): MediaStorageAdapter {
   const required = ["MEDIA_S3_ENDPOINT", "MEDIA_S3_REGION", "MEDIA_PRIVATE_BUCKET", "MEDIA_PUBLIC_BUCKET", "MEDIA_S3_ACCESS_KEY_ID", "MEDIA_S3_SECRET_ACCESS_KEY", "MEDIA_PUBLIC_ORIGIN"] as const;
   if (required.some(key => !process.env[key])) throw providerUnavailable();
   if (process.env.MEDIA_PUBLIC_ORIGIN !== `https://media.${getSiteDomain()}`) throw providerUnavailable();
-  return new S3MediaStorage({ endpoint: process.env.MEDIA_S3_ENDPOINT!, region: process.env.MEDIA_S3_REGION!, privateBucket: process.env.MEDIA_PRIVATE_BUCKET!,
+  const signature = required.map(key => process.env[key]).join("\0");
+  if (cachedS3?.signature === signature) return cachedS3.storage;
+  const storage = new S3MediaStorage({ endpoint: process.env.MEDIA_S3_ENDPOINT!, region: process.env.MEDIA_S3_REGION!, privateBucket: process.env.MEDIA_PRIVATE_BUCKET!,
     publicBucket: process.env.MEDIA_PUBLIC_BUCKET!, accessKeyId: process.env.MEDIA_S3_ACCESS_KEY_ID!, secretAccessKey: process.env.MEDIA_S3_SECRET_ACCESS_KEY!, publicOrigin: process.env.MEDIA_PUBLIC_ORIGIN! });
+  cachedS3 = { signature, storage };
+  return storage;
 }

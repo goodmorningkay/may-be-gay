@@ -1,17 +1,46 @@
-import { closeDatabase } from "../db";
-import { failureCode } from "./errors";
-import { workerConnection, type Claim } from "./queue";
-export async function dispatch(c: Claim) {
+import { workerConnection, type Claim, type WorkerSql } from "./queue";
+
+const allowedFailures = new Set([
+  "JOB_CLAIM_LOST",
+  "MAIL_NOT_CONFIGURED",
+  "PRIVATE_MAIL_OUTBOX_REQUIRED",
+  "LOCAL_MAIL_WRITE_FAILED",
+  "EMAIL_DELIVERY_FAILED",
+  "MEDIA_PROVIDER_UNCONFIGURED",
+  "MEDIA_STORAGE_UNAVAILABLE",
+  "MEDIA_PARSER_BUSY",
+  "MEDIA_PARSER_UNAVAILABLE",
+  "MEDIA_RETAINED",
+  "MEDIA_INVALID",
+  "MEDIA_PROCESSING_LIMIT",
+  "DRAFT_REPAIR_REQUIRED",
+  "ACCOUNT_DELETION_NOT_REQUESTED",
+  "ACCOUNT_MEDIA_BOUND_EXCEEDED",
+]);
+
+export function failureCode(error: unknown): string {
+  if (error && typeof error === "object") {
+    const e = error as { code?: unknown; message?: unknown; name?: unknown };
+    if (typeof e.code === "string" && allowedFailures.has(e.code)) return e.code;
+    if (typeof e.message === "string" && allowedFailures.has(e.message)) return e.message;
+    if (e.name === "ZodError") return "INVALID_JOB_PAYLOAD";
+  }
+  return "PROCESSOR_FAILED";
+}
+
+export async function dispatch(c: Claim, passedSql?: WorkerSql) {
   if (c.payload_version !== 1) throw Object.assign(new Error(), { name: "ZodError" });
   switch (c.kind) {
     case "email": {
       const { processEmailJob } = await import("../mail");
-      const sql = workerConnection();
+      const sql = passedSql ?? workerConnection();
       try {
         const [live] = await sql`select id from jobs where id=${c.id} and state='running' and locked_by=${c.locked_by} and attempts=${c.attempts}`;
         if (!live) throw new Error("JOB_CLAIM_LOST");
         return await processEmailJob({ id: c.id, payload: c.payload });
-      } finally { await sql.end({ timeout: 0 }); }
+      } finally {
+        if (!passedSql) await sql.end({ timeout: 0 });
+      }
     }
     case "media": {
       const { processMediaJob } = await import("../media/jobs");
@@ -29,18 +58,7 @@ export async function dispatch(c: Claim) {
       const { processAccountDeletionJob } = await import("../operations/deletion");
       return processAccountDeletionJob(c.payload);
     }
-    default: throw Object.assign(new Error(), { name: "ZodError" });
+    default:
+      throw Object.assign(new Error(), { name: "ZodError" });
   }
-}
-// Invoked only through the bounded subprocess runner, never through HTTP.
-if (process.env.WORKER_PROCESSOR_CHILD === "1") {
-  const watchdog = setTimeout(() => process.exit(70), 65_000);
-  process.on("disconnect", () => process.exit(71));
-  let size = 0, input = "";
-  process.stdin.on("data", (chunk: Buffer) => { size += chunk.length; if (size > 65536) process.exit(72); input += chunk; });
-  process.stdin.on("end", async () => {
-    try { await dispatch(JSON.parse(input)); process.send?.({ code: "OK" }); }
-    catch (e) { process.send?.({ code: failureCode(e) }); }
-    finally { clearTimeout(watchdog); await closeDatabase(); process.exit(0); }
-  });
 }

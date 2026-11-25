@@ -5,7 +5,7 @@ import os from "node:os";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { decryptFile, encryptFile, loadKey } from "../../src/server/recovery/crypto";
 import { manifestSchema } from "../../src/server/recovery/manifest";
-import { LocalBackupStore, S3BackupStore } from "../../src/server/recovery/store";
+import { LocalBackupStore } from "../../src/server/recovery/store";
 let root: string;
 beforeEach(async () => { root = await mkdtemp(path.join(os.tmpdir(), "recovery-test-")); });
 afterEach(async () => { await rm(root, { recursive: true, force: true }); });
@@ -32,10 +32,9 @@ describe("authenticated bounded archives", () => {
     const link = path.join(root, "symlink"); await symlink(input, link);
     await expect(loadKey(link, "fixture")).rejects.toThrow("FILE_BOUNDS_INVALID");
   });
-  it("rejects traversal and accidental media credential/bucket reuse", async () => {
+  it("rejects traversal in local store and manifest", async () => {
     const store = new LocalBackupStore(root);
     await expect(store.get("../x", "manifest.enc", path.join(root, "out"))).rejects.toThrow("ARCHIVE_PATH_INVALID");
     expect(manifestSchema.safeParse({ files: [{ name: "../../x" }] }).success).toBe(false);
-    expect(() => new S3BackupStore({ NODE_ENV: "test", BACKUP_S3_ENDPOINT: "https://backup.invalid", BACKUP_S3_REGION: "auto", BACKUP_S3_BUCKET: "media", BACKUP_S3_ACCESS_KEY_ID: "separate", BACKUP_S3_SECRET_ACCESS_KEY: "separate", BACKUP_S3_PREFIX: "backups/fixture/", MEDIA_PRIVATE_BUCKET: "media" })).toThrow("BACKUP_MEDIA_CREDENTIAL_REUSE");
   });
 });

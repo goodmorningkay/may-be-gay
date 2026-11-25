@@ -3,15 +3,14 @@ import { NextRequest } from "next/server";
 import { unstable_doesMiddlewareMatch } from "next/experimental/testing/server";
 import { config } from "@/proxy";
 import { proxy } from "@/proxy";
-import { getPublishedProfile } from "@/server/profiles";
-import { defaultProfileDocument } from "@/domain/profile";
+import { hasPublishedProfile } from "@/server/profiles";
 import { serviceState } from "@/server/service-state";
 
-vi.mock("@/server/profiles", () => ({ getPublishedProfile: vi.fn() }));
+vi.mock("@/server/profiles", () => ({ hasPublishedProfile: vi.fn() }));
 vi.mock("@/server/service-state", () => ({ serviceState: vi.fn() }));
 beforeEach(() => {
   vi.mocked(serviceState).mockResolvedValue("open");
-  vi.mocked(getPublishedProfile).mockResolvedValue({ id: "fixture", username: "alex", revisionId: "revision", document: defaultProfileDocument });
+  vi.mocked(hasPublishedProfile).mockResolvedValue(true);
 });
 
 function request(host: string, path = "/", headers: Record<string, string> = {}, method = "GET") {
@@ -103,7 +102,7 @@ describe("request boundary and security headers", () => {
 
   it("returns a real 404 before an unknown profile can start an RSC stream", async () => {
     vi.stubEnv("SITE_DOMAIN", "may-be.gay");
-    vi.mocked(getPublishedProfile).mockResolvedValue(null);
+    vi.mocked(hasPublishedProfile).mockResolvedValue(false);
     const result = await proxy(request("unknown.may-be.gay", "/?_rsc=test", { rsc: "1" }));
     expect(result.status).toBe(404);
     expect(result.headers.get("cache-control")).toContain("no-store");
@@ -112,7 +111,7 @@ describe("request boundary and security headers", () => {
   it("returns a generic non-cacheable 503 on database failure", async () => {
     vi.stubEnv("SITE_DOMAIN", "may-be.gay");
     vi.spyOn(console, "error").mockImplementation(() => {});
-    vi.mocked(getPublishedProfile).mockRejectedValue(new Error("PRIVATE DB FAILURE DETAILS"));
+    vi.mocked(hasPublishedProfile).mockRejectedValue(new Error("PRIVATE DB FAILURE DETAILS"));
     const result = await proxy(request("alex.may-be.gay"));
     expect(result.status).toBe(503);
     expect(await result.text()).not.toContain("PRIVATE");

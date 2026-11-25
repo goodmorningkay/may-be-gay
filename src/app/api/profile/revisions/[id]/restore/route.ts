@@ -9,6 +9,6 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const profileId = requireEditorIdentity(request);
     const { expectedVersion } = await readJson(request, expectedVersionSchema, 1024);
     const { id } = await context.params;
-    return apiJson(await restoreProfileRevision(principal, id, expectedVersion, profileId));
+    return apiJson(await restoreProfileRevision(principal, id, expectedVersion, profileId, { validated: true }));
   } catch (error) { return apiError(error); }
 }

@@ -1,6 +1,7 @@
 "use client";
 import { useState, type FormEvent } from "react";
 import Link from "next/link";
+import { downloadBlob } from "../download-blob";
 import chrome from "../site-chrome.module.css";
 import styles from "./operations.module.css";
 export function AccountPanel({ accountId }: { accountId: string }) {
@@ -17,9 +18,7 @@ export function AccountPanel({ accountId }: { accountId: string }) {
       if (!response.ok) { const body = await response.json(); throw new Error(body.error?.message ?? "Unable to download your archive."); }
       if (!response.headers.get("content-type")?.startsWith("application/x-tar")) throw new Error("Unable to download your archive.");
       const archive = await response.blob();
-      const url = URL.createObjectURL(archive), anchor = document.createElement("a");
-      anchor.href = url; anchor.download = "may-be-account.tar"; anchor.click();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      downloadBlob(archive, "may-be-account.tar");
       setMessage("Archive prepared. Keep the downloaded copy private.");
     } catch (error) { setMessage(error instanceof Error ? error.message : "Unable to download your archive."); }
     finally { setBusy(false); }

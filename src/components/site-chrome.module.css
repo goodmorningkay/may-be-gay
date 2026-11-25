@@ -2,7 +2,6 @@
   composes: dark from "./brand.module.css";
   --panel: #191919;
   --danger: #edabab;
-  --positive: #a9c5a7;
   min-height: 100vh;
   font-size: 14px;
   line-height: 1.5;

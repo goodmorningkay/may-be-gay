@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { USERNAME_PATTERN } from "@/domain/hosts";
 import { UsernameTakenDialog } from "../username-taken-dialog";
 import styles from "./homepage.module.css";
 
@@ -68,7 +69,7 @@ export function Homepage({ appOrigin, domain, rejectedUsername, takenUsername }:
                 <div className={styles.claimControls}>
                   <div className={styles.addressField}>
                     <input id="homepage-username" name="username" placeholder="yourname" defaultValue={initialUsername}
-                      required minLength={3} maxLength={30} pattern={"[a-z0-9][a-z0-9\\-]{1,28}[a-z0-9]"}
+                      required minLength={3} maxLength={30} pattern={USERNAME_PATTERN}
                       title="Use 3–30 lowercase letters, numbers or hyphens. Start and end with a letter or number."
                       autoComplete="off" autoCapitalize="none" spellCheck={false}
                       aria-invalid={invalid || undefined} aria-describedby={invalid ? "homepage-username-error" : undefined} />

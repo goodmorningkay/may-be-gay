@@ -21,25 +21,30 @@ export function assertLocalRedirect(value: unknown): void {
   const url = new URL(value, appOrigin());
   if (url.origin !== appOrigin() || value.startsWith("//") || url.username || url.password) throw new AppError(400, "REDIRECT_REJECTED", "Invalid redirect.");
 }
-export async function readJson<T>(request: Request, schema: z.ZodType<T>, maxBytes = 16384): Promise<T> {
-  if (!request.headers.get("content-type")?.toLowerCase().startsWith("application/json")) throw new AppError(415, "JSON_REQUIRED", "Send JSON.");
+export async function readBoundedBody(request: Request, maxBytes = 16384, tooLargeMessage = "Request too large.", invalidMessage = "Invalid request."): Promise<Buffer> {
   const declared = request.headers.get("content-length");
-  if (declared && (!/^\d+$/.test(declared) || Number(declared) > maxBytes)) throw new AppError(413, "BODY_TOO_LARGE", "Request too large.");
+  if (declared && (!/^\d+$/.test(declared) || Number(declared) > maxBytes)) throw new AppError(413, "BODY_TOO_LARGE", tooLargeMessage);
   const reader = request.body?.getReader();
-  if (!reader) throw new AppError(400, "INVALID_BODY", "Invalid request.");
+  if (!reader) throw new AppError(400, "INVALID_BODY", invalidMessage);
   const chunks: Uint8Array[] = []; let size = 0;
   try {
     for (;;) {
       const { done, value } = await reader.read(); if (done) break;
       size += value.byteLength;
-      if (size > maxBytes) { await reader.cancel(); throw new AppError(413, "BODY_TOO_LARGE", "Request too large."); }
+      if (size > maxBytes) { await reader.cancel(); throw new AppError(413, "BODY_TOO_LARGE", tooLargeMessage); }
       chunks.push(value);
     }
-    const parsed = schema.safeParse(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+    return Buffer.concat(chunks);
+  } finally { reader.releaseLock(); }
+}
+export async function readJson<T>(request: Request, schema: z.ZodType<T>, maxBytes = 16384): Promise<T> {
+  if (!request.headers.get("content-type")?.toLowerCase().startsWith("application/json")) throw new AppError(415, "JSON_REQUIRED", "Send JSON.");
+  const raw = await readBoundedBody(request, maxBytes);
+  try {
+    const parsed = schema.safeParse(JSON.parse(raw.toString("utf8")));
     if (!parsed.success) throw new Error();
     return parsed.data;
-  } catch (error) { if (error instanceof AppError) throw error; throw new AppError(400, "INVALID_BODY", "Invalid request."); }
-  finally { reader.releaseLock(); }
+  } catch { throw new AppError(400, "INVALID_BODY", "Invalid request."); }
 }
 export function apiJson(data: unknown, status = 200): Response {
   return Response.json(data, { status, headers: { "cache-control": "no-store", "x-content-type-options": "nosniff" } });

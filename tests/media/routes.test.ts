@@ -1,17 +1,23 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AppError } from "@/server/http";
+import { AppError, assertMutationOrigin } from "@/server/http";
 const mocks = vi.hoisted(()=>({requireUser:vi.fn(),upload:vi.fn(),list:vi.fn(),remove:vi.fn(),readPrivate:vi.fn(),readPublic:vi.fn(),rate:vi.fn()}));
 vi.mock("@/server/auth/session",()=>({requireUser:mocks.requireUser}));
 vi.mock("@/server/rate-limit",()=>({rateLimit:mocks.rate}));
 vi.mock("@/server/media/service",()=>({uploadMedia:mocks.upload,listOwnedMedia:mocks.list,deleteOwnedMedia:mocks.remove,readPrivateContent:mocks.readPrivate,readLocalPublicContent:mocks.readPublic}));
 import { GET, POST } from "@/app/api/media/route";
-import { PUT } from "@/app/api/media/route";
 import { serviceState } from "@/server/service-state";
 vi.mock("@/server/service-state",()=>({serviceState:vi.fn()}));
 import { DELETE } from "@/app/api/media/[id]/route";
 import { GET as content } from "@/app/api/media/[id]/content/route";
 import { GET as publicContent } from "@/app/media/[...key]/route";
-beforeEach(()=>{vi.mocked(serviceState).mockResolvedValue("open");vi.stubEnv("SITE_DOMAIN","may-be.localhost");mocks.requireUser.mockResolvedValue({userId:"session-owner"});});
+beforeEach(()=>{
+  vi.mocked(serviceState).mockResolvedValue("open");
+  vi.stubEnv("SITE_DOMAIN","may-be.localhost");
+  mocks.requireUser.mockImplementation(async (input?: Request | Headers) => {
+    if (input && !(input instanceof Headers) && !["GET", "HEAD", "OPTIONS"].includes(input.method)) assertMutationOrigin(input);
+    return { userId: "session-owner" };
+  });
+});
 afterEach(()=>vi.unstubAllEnvs());
 const profileId="11111111-1111-4111-8111-111111111111";
 const headers={"x-editor-profile":profileId,host:"app.may-be.localhost",origin:"https://app.may-be.localhost","content-type":"text/plain","content-length":"1"};
@@ -25,7 +31,7 @@ describe("media HTTP contracts",()=>{
     for (const pathname of ["/api/media/","/api/%6dedia","/api/media/content"]) {
       expect((await POST(new Request(`https://app.may-be.localhost${pathname}`,{method:"POST",headers,body:"x"}))).status).toBe(404);
     }
-    expect((await PUT(new Request("https://app.may-be.localhost/api/media",{method:"PUT",headers,body:"x"}))).headers.get("allow")).toBe("GET, HEAD, POST");
+    expect((await GET(new Request("https://app.may-be.localhost/api/media",{method:"PUT",headers,body:"x"}))).headers.get("allow")).toBe("GET, HEAD, POST");
     vi.mocked(serviceState).mockResolvedValue("closed");
     const closed=await POST(new Request("https://app.may-be.localhost/api/media?kind=image",{method:"POST",headers,body:"x"}));
     expect(closed.status).toBe(503);expect(closed.headers.get("retry-after")).toBe("60");expect(mocks.upload).not.toHaveBeenCalled();

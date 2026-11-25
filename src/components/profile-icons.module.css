@@ -1,7 +1,5 @@
 .arrow { display: inline-block; flex: 0 0 20px; height: 20px; font-size: 0; color: var(--accent); }
 .arrow::before { content: ""; display: block; width: 20px; height: 20px; background: currentColor; mask: url("./profile-assets/profile-arrow.svg") center no-repeat; }
-:global([data-preset="forest"]) .arrow::before { mask-image: url("./profile-assets/profile-forest-arrow.svg"); }
-:global([data-preset="sunset"]) .arrow::before { mask-image: url("./profile-assets/profile-sunset-arrow.svg"); }
 .website { display: inline-block; width: 17px; height: 17px; background: currentColor; mask: url("./profile-assets/profile-website.svg") center no-repeat; }
 @media (forced-colors: active) {
   .arrow { font-size: 16px; }

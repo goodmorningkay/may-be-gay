@@ -22,8 +22,6 @@ export function AboutFields({ document: d, errors, onChange }: Props) {
   </section>;
 }
 
-const socialIcons = socialLinkIcons;
-
 export function LinkFields({ document: d, errors, onChange, edit, onEdit }: Props & { edit: LinkEdit | null; onEdit: (edit: LinkEdit | null) => void }) {
   const [announcement, setAnnouncement] = useState("");
   const dialog = useRef<HTMLDialogElement>(null);
@@ -99,14 +97,14 @@ export function LinkFields({ document: d, errors, onChange, edit, onEdit }: Prop
           <Field name={`links.${index}.url`} label="URL" errors={errors}>{props => <input {...props} type="url" inputMode="url" autoCapitalize="none" spellCheck={false} value={link.url} maxLength={2048} required onChange={e => updateLink({ url: e.target.value })} />}</Field>
         )}
         <Field name={`links.${index}.icon`} label="Social icon" errors={errors}>{props => <select {...props} value={link.icon ?? ""} onChange={e => {
-          const icon = socialIcons.find(value => value === e.target.value);
+          const icon = socialLinkIcons.find(value => value === e.target.value);
           if (icon) updateLink({ icon });
           else {
             const { icon: _icon, ...rest } = link;
             void _icon;
             onChange({ ...d, links: d.links.map(value => value.id === link.id ? rest : value) });
           }
-        }}><option value="">No icon</option>{socialIcons.map(icon => <option key={icon} value={icon}>{icon[0].toUpperCase() + icon.slice(1)}</option>)}</select>}</Field>
+        }}><option value="">No icon</option>{socialLinkIcons.map(icon => <option key={icon} value={icon}>{icon[0].toUpperCase() + icon.slice(1)}</option>)}</select>}</Field>
         <label className={styles.checkRow}>Show on public page<input className={styles.visibilityCheck} type="checkbox" checked={link.visible} onChange={e => updateLink({ visible: e.target.checked })} /></label>
         <div className={styles.sectionHeading}>
           <div className={styles.inlineActions}>

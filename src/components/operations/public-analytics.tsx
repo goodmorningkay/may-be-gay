@@ -1,9 +1,9 @@
 "use client";
 import { useEffect } from "react";
-import { getSiteDomain, resolveHost } from "@/domain/hosts";
+import { getSiteDomain, resolveHost, type SiteDomain } from "@/domain/hosts";
 /** Parent mounts ONLY on a public profile. Add data-profile-link=<UUID> to native
  * public anchors, never redirect through metrics. No visitor identity or storage. */
-export function PublicAnalytics({ username, domain = getSiteDomain() }: { username: string; domain?: "may-be.gay" | "may-be.localhost" }) {
+export function PublicAnalytics({ username, domain = getSiteDomain() }: { username: string; domain?: SiteDomain }) {
   useEffect(() => {
     const host = resolveHost(location.host, domain);
     const privacy = navigator as Navigator & { globalPrivacyControl?: boolean };

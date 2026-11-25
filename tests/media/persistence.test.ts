@@ -48,7 +48,6 @@ describe.skipIf(!testUrl)("media PostgreSQL ownership, quota and distributed tra
   async function ready(ownerId: string) {
     const asset = await upload(ownerId), [row] = await harness.db.select().from(mediaStorage).where(eq(mediaStorage.assetId,asset.id));
     await processMediaJob({version:1,action:"process",assetId:asset.id,token:row.token});
-    await processMediaJob({version:1,action:"trim",assetId:asset.id,token:row.token});
     return (await harness.db.select().from(mediaStorage).where(eq(mediaStorage.assetId,asset.id)))[0];
   }
   async function publish(ownerId: string,profileId: string,assetId: string) {
@@ -95,11 +94,10 @@ describe.skipIf(!testUrl)("media PostgreSQL ownership, quota and distributed tra
     const keys = objectKeys(asset.id, token), storage = getMediaStorage(), bytes = ready.original!.bytes;
     expect(ready.original?.key).toBe(keys.original);
     expect(ready.display).toEqual(ready.original);
-    expect(ready.privateBytes).toBe(gif.length + bytes);
-    expect(ready.chargedBytes).toBe(gif.length + 2 * bytes);
+    expect(ready.privateBytes).toBe(bytes);
+    expect(ready.chargedBytes).toBe(2 * bytes);
+    expect(await storage.exists("private", keys.quarantine)).toBe(false);
     expect(await storage.exists("private", keys.display)).toBe(false);
-    await processMediaJob({ ...locator, action: "trim" });
-    expect(await readRow()).toMatchObject({ privateBytes: bytes, chargedBytes: 2 * bytes });
     await publish(a.id, a.profileId, asset.id);
     await processMediaJob({ ...locator, action: "reconcileAsset" });
     expect(await readRow()).toMatchObject({ privateBytes: bytes, chargedBytes: 2 * bytes });
@@ -237,8 +235,19 @@ describe.skipIf(!testUrl)("media PostgreSQL ownership, quota and distributed tra
     const file=path.join(root,area,`${key}.${randomUUID()}.partial`);
     await mkdir(path.dirname(file),{recursive:true});await writeFile(file,Buffer.alloc(67));return file;
   }
-  it("cleans crash temporaries on an existing-original retry, trim and live reconciliation",async()=>{
-    const a=await owner(),asset=await upload(a.id),[row]=await harness.db.select().from(mediaStorage).where(eq(mediaStorage.assetId,asset.id));
+  it("shares one private object for small still images without duplicating display.webp", async () => {
+    const a = await owner(), row = await ready(a.id);
+    const keys = objectKeys(row.assetId, row.token), storage = getMediaStorage();
+    expect(row.display).toEqual(row.original);
+    expect(row.privateBytes).toBe(row.original!.bytes);
+    expect(await storage.exists("private", keys.quarantine)).toBe(false);
+    expect(await storage.exists("private", keys.display)).toBe(false);
+  });
+  it("cleans crash temporaries on an existing-original retry, immediate trim and live reconciliation",async()=>{
+    const a=await owner();
+    const wide=await sharp({create:{width:1700,height:16,channels:3,background:"green"}}).png().toBuffer();
+    const asset=await uploadMedia(a.id,"image",new ReadableStream({start(c){c.enqueue(wide);c.close();}}));
+    const [row]=await harness.db.select().from(mediaStorage).where(eq(mediaStorage.assetId,asset.id));
     const keys=objectKeys(row.assetId,row.token),original=LocalMediaStorage.prototype.put;
     const failure=vi.spyOn(LocalMediaStorage.prototype,"put").mockImplementation(async function(this: LocalMediaStorage,area,key,body,type){
       if(key===keys.display) throw new Error("crash after original");return original.call(this,area,key,body,type);
@@ -248,7 +257,6 @@ describe.skipIf(!testUrl)("media PostgreSQL ownership, quota and distributed tra
     const leftovers=await Promise.all([partial("private",keys.original),partial("private",keys.display),partial("public",row.publicKey)]);
     const unrelated=await partial("private",objectKeys(randomUUID(),randomUUID()).original);
     await processMediaJob({version:1,action:"process",assetId:row.assetId,token:row.token});
-    await processMediaJob({version:1,action:"trim",assetId:row.assetId,token:row.token});
     await publish(a.id,a.profileId,row.assetId);
     leftovers.push(await partial("private",keys.original),await partial("private",keys.display),await partial("public",row.publicKey));
     await processMediaJob({version:1,action:"reconcileAsset",assetId:row.assetId,token:row.token});
@@ -392,13 +400,15 @@ describe.skipIf(!testUrl)("media PostgreSQL ownership, quota and distributed tra
     const deleteSpy = vi.spyOn(LocalMediaStorage.prototype, "delete");
     try {
       await processMediaJob({ version: 1, action: "process", assetId: row.assetId, token: row.token });
-      expect(deleteSpy).not.toHaveBeenCalled();
+      expect(deleteSpy).not.toHaveBeenCalledWith("private", keys.original);
+      expect(deleteSpy).not.toHaveBeenCalledWith("private", keys.display);
     } finally { deleteSpy.mockRestore(); }
     const [done] = await harness.db.select().from(mediaStorage).where(eq(mediaStorage.assetId, row.assetId));
     expect(done.state).toBe("ready");
     expect(done.original?.bytes).toBe(priorOriginal.length);
+    expect(await getMediaStorage().exists("private", keys.quarantine)).toBe(false);
   });
-  it("keeps an obsolete display.webp charged on ready and removes it during trim for a shared GIF retry", async () => {
+  it("keeps an obsolete display.webp charged on ready when immediate trim fails and removes it via reconcileAsset", async () => {
     const a = await owner();
     const { gifFixture } = await import("./gif-fixture");
     const gif = await gifFixture(8, 8, 2);
@@ -407,13 +417,17 @@ describe.skipIf(!testUrl)("media PostgreSQL ownership, quota and distributed tra
     const keys = objectKeys(row.assetId, row.token);
     const obsoleteDisplay = await sharp(fixture).webp({ quality: 80, effort: 1 }).toBuffer();
     await getMediaStorage().put("private", keys.display, obsoleteDisplay, "image/webp");
-    await processMediaJob({ version: 1, action: "process", assetId: row.assetId, token: row.token });
+    const delSpy = vi.spyOn(LocalMediaStorage.prototype, "delete").mockRejectedValueOnce(new Error("simulated trim failure"));
+    try {
+      await processMediaJob({ version: 1, action: "process", assetId: row.assetId, token: row.token });
+    } finally { delSpy.mockRestore(); }
     const [readyRow] = await harness.db.select().from(mediaStorage).where(eq(mediaStorage.assetId, row.assetId));
     expect(readyRow.state).toBe("ready");
     expect(readyRow.display?.key).toBe(keys.original);
     expect(readyRow.privateBytes).toBe(row.receivedBytes + readyRow.original!.bytes + obsoleteDisplay.length);
-    await processMediaJob({ version: 1, action: "trim", assetId: row.assetId, token: row.token });
+    await processMediaJob({ version: 1, action: "reconcileAsset", assetId: row.assetId, token: row.token });
     expect(await getMediaStorage().exists("private", keys.display)).toBe(false);
+    expect(await getMediaStorage().exists("private", keys.quarantine)).toBe(false);
     const [trimmed] = await harness.db.select().from(mediaStorage).where(eq(mediaStorage.assetId, row.assetId));
     expect(trimmed.privateBytes).toBe(readyRow.original!.bytes);
   });

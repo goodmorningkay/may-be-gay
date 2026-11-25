@@ -37,7 +37,7 @@ describe.skipIf(!source || !target)("full PostgreSQL 17 backup/restore", () => {
     await mkdir(workRoot, { recursive: true, mode: 0o700 }); root = await mkdtemp(path.join(workRoot, "case-"));
     vi.stubEnv("DATABASE_URL", source!); vi.stubEnv("BACKUP_DATABASE_URL", backupUrl!); vi.stubEnv("SITE_DOMAIN", "may-be.localhost");
     vi.stubEnv("MEDIA_STORAGE", "local"); vi.stubEnv("MEDIA_LOCAL_ROOT", path.join(root, "source-media")); vi.stubEnv("BACKUP_WORK_ROOT", path.join(root, "work"));
-    vi.stubEnv("PG_DUMP_BIN", process.env.PG_DUMP_BIN || path.resolve("infra/operations/test-pg-dump.sh")); vi.stubEnv("PG_RESTORE_BIN", process.env.PG_RESTORE_BIN || path.resolve("infra/operations/test-pg-restore.sh"));
+    vi.stubEnv("PG_DUMP_BIN", process.env.PG_DUMP_BIN || path.resolve("infra/operations/recovery-review-pg-dump.sh")); vi.stubEnv("PG_RESTORE_BIN", process.env.PG_RESTORE_BIN || path.resolve("infra/operations/recovery-review-pg-restore.sh"));
     h = await fixture(source!);
     if (process.env.RECOVERY_READONLY_DATABASE_URL) {
       const role = decodeURIComponent(new URL(backupUrl!).username);

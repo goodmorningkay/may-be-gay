@@ -2,12 +2,13 @@ import "server-only";
 
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
+import type { EditorState } from "@/domain/editor";
 import { defaultProfileDocument, getProfileAssetIds, profileDocumentSchema, type ProfileDocument } from "@/domain/profile";
 import type { PublicMediaMap } from "@/domain/media";
 import type { SessionPrincipal } from "@/server/auth/session";
 import { getDatabase } from "@/server/db";
 import type { Transaction } from "@/server/db/types";
-import { draftMedia, media, profileDrafts, profileRevisions, profiles, revisionMedia, user, usernameClaims } from "@/server/db/schema";
+import { draftMedia, profileDrafts, profileRevisions, profiles, revisionMedia, user, usernameClaims } from "@/server/db/schema";
 import { AppError } from "@/server/http";
 import { assertOwnedReadyMedia, enqueueMediaReconciliation, getPrivateMedia, publishOwnedMedia } from "@/server/media/service";
 
@@ -27,14 +28,7 @@ function checkEditorIdentity(profile: LockedProfile, expectedProfileId: string) 
   if (profile.id !== expectedProfileId) throw new AppError(409, "ACCOUNT_CHANGED", "Sign in to the account that opened this editor before retrying. Your input has not been saved to the other account.");
 }
 
-export type ProfileEditorState = {
-  profileId: string;
-  username: string;
-  editVersion: number;
-  document: ProfileDocument;
-  publishedRevisionId: string | null;
-  revisions: { id: string; revisionNumber: number; createdAt: string }[];
-};
+export type ProfileEditorState = EditorState;
 
 type LockedProfile = { id: string; currentRevisionId: string | null; publicationNumber: number };
 
@@ -85,10 +79,13 @@ function parseDocument(value: unknown): ProfileDocument {
   if (!parsed.success) throw new AppError(422, "INVALID_PROFILE", "The profile document is invalid. Check the profile fields and link destinations.");
   return parsed.data;
 }
+function assertNextVersion(actual: number) {
+  if (actual >= 2147483647) throw new AppError(409, "EDIT_VERSION_EXHAUSTED", "This profile needs maintenance before another edit can be saved.");
+}
 function checkVersion(actual: number, expected: number) {
   if (actual !== expected) throw new AppError(409, "EDIT_VERSION_CONFLICT",
     `This profile changed in another tab (current editVersion ${actual}). Reload GET /api/profile and reconcile your changes before retrying.`);
-  if (actual >= 2147483647) throw new AppError(409, "EDIT_VERSION_EXHAUSTED", "This profile needs maintenance before another edit can be saved.");
+  assertNextVersion(actual);
 }
 
 async function state(tx: Transaction, ownerId: string, profile: LockedProfile): Promise<ProfileEditorState> {
@@ -106,11 +103,8 @@ async function state(tx: Transaction, ownerId: string, profile: LockedProfile): 
 
 async function validateAssets(tx: Transaction, ownerId: string, document: ProfileDocument) {
   const ids = getProfileAssetIds(document);
-  await assertOwnedReadyMedia(tx, ownerId, ids);
   if (!ids.length) return ids;
-  const assets = await tx.select({ id: media.id, kind: media.kind }).from(media)
-    .where(and(eq(media.ownerId, ownerId), inArray(media.id, ids), eq(media.state, "ready"), isNull(media.deletedAt))).for("update");
-  const kinds = new Map(assets.map((asset) => [asset.id, asset.kind]));
+  const kinds = await assertOwnedReadyMedia(tx, ownerId, ids);
   for (const id of [document.avatarAssetId, document.backgroundAssetId]) {
     if (id && kinds.get(id.toLowerCase()) !== "image") throw new AppError(422, "INVALID_PROFILE_MEDIA", "Avatar and background must use your ready image assets.");
   }
@@ -133,24 +127,41 @@ export async function getProfileEditor(principal: SessionPrincipal): Promise<Pro
   return getDatabase().transaction(async (tx) => state(tx, principal.userId, await lockProfile(tx, principal)));
 }
 
-export async function saveProfile(principal: SessionPrincipal, input: z.infer<typeof saveProfileSchema>, expectedProfileId: string): Promise<ProfileEditorState> {
-  const parsed = saveProfileSchema.safeParse(input);
-  if (!parsed.success) throw new AppError(422, "INVALID_PROFILE", "Supply expectedVersion and a valid complete profile document.");
+export async function saveProfile(
+  principal: SessionPrincipal,
+  input: z.infer<typeof saveProfileSchema>,
+  expectedProfileId: string,
+  options?: { validated?: boolean },
+): Promise<ProfileEditorState> {
+  let data = input;
+  if (!options?.validated) {
+    const parsed = saveProfileSchema.safeParse(input);
+    if (!parsed.success) throw new AppError(422, "INVALID_PROFILE", "Supply expectedVersion and a valid complete profile document.");
+    data = parsed.data;
+  }
   return getDatabase().transaction(async (tx) => {
     const profile = await lockProfile(tx, principal);
     checkEditorIdentity(profile, expectedProfileId);
     const draft = await readDraft(tx, principal.userId, profile.id);
-    checkVersion(draft.editVersion, parsed.data.expectedVersion);
-    const ids = await validateAssets(tx, principal.userId, parsed.data.document);
-    await replaceDraft(tx, principal.userId, profile.id, draft.editVersion, parsed.data.document, ids);
+    checkVersion(draft.editVersion, data.expectedVersion);
+    const ids = await validateAssets(tx, principal.userId, data.document);
+    await replaceDraft(tx, principal.userId, profile.id, draft.editVersion, data.document, ids);
     await enqueueMediaReconciliation(tx, principal.userId);
     return state(tx, principal.userId, profile);
   });
 }
 
-async function publish(principal: SessionPrincipal, expectedVersion: number, expectedProfileId: string, restoreId?: string): Promise<ProfileEditorState> {
-  const input = expectedVersionSchema.safeParse({ expectedVersion });
-  if (!input.success) throw new AppError(422, "INVALID_VERSION", "Supply a positive expectedVersion from GET /api/profile.");
+async function publish(
+  principal: SessionPrincipal,
+  expectedVersion: number,
+  expectedProfileId: string,
+  restoreId?: string,
+  options?: { validated?: boolean },
+): Promise<ProfileEditorState> {
+  if (!options?.validated) {
+    const input = expectedVersionSchema.safeParse({ expectedVersion });
+    if (!input.success) throw new AppError(422, "INVALID_VERSION", "Supply a positive expectedVersion from GET /api/profile.");
+  }
   if (restoreId !== undefined && !z.string().uuid().safeParse(restoreId).success) throw new AppError(404, "REVISION_NOT_FOUND", "This retained revision was not found.");
   let preparedMedia = false;
   try {
@@ -216,18 +227,29 @@ async function publish(principal: SessionPrincipal, expectedVersion: number, exp
   }
 }
 
-export async function publishProfile(principal: SessionPrincipal, expectedVersion: number, expectedProfileId: string) {
-  return publish(principal, expectedVersion, expectedProfileId);
+export async function publishProfile(
+  principal: SessionPrincipal,
+  expectedVersion: number,
+  expectedProfileId: string,
+  options?: { validated?: boolean },
+) {
+  return publish(principal, expectedVersion, expectedProfileId, undefined, options);
 }
-export async function restoreProfileRevision(principal: SessionPrincipal, revisionId: string, expectedVersion: number, expectedProfileId: string) {
-  return publish(principal, expectedVersion, expectedProfileId, revisionId);
+export async function restoreProfileRevision(
+  principal: SessionPrincipal,
+  revisionId: string,
+  expectedVersion: number,
+  expectedProfileId: string,
+  options?: { validated?: boolean },
+) {
+  return publish(principal, expectedVersion, expectedProfileId, revisionId, options);
 }
 export async function unpublishProfile(principal: SessionPrincipal, expectedProfileId: string): Promise<ProfileEditorState> {
   return getDatabase().transaction(async (tx) => {
     const profile = await lockProfile(tx, principal);
     checkEditorIdentity(profile, expectedProfileId);
     const draft = await readDraft(tx, principal.userId, profile.id);
-    checkVersion(draft.editVersion, draft.editVersion);
+    assertNextVersion(draft.editVersion);
     // Invalidate in-flight saves/publications even though the document is unchanged.
     await tx.update(profileDrafts).set({ editVersion: draft.editVersion + 1 })
       .where(and(eq(profileDrafts.profileId, profile.id), ownedProfile(principal.userId), eq(profileDrafts.editVersion, draft.editVersion)));

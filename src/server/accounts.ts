@@ -4,7 +4,7 @@ import { isValidUsername } from "@/domain/hosts";
 import { defaultProfileDocument } from "@/domain/profile";
 import { getDatabase } from "./db";
 import { user, usernameClaims, profiles, profileDrafts, session, twoFactor } from "./db/schema";
-import { requireUser } from "./auth/session";
+import { requireUser, type SessionPrincipal } from "./auth/session";
 import { AppError } from "./http";
 
 export async function isUsernameClaimed(username: string): Promise<boolean> {
@@ -17,7 +17,7 @@ export async function isUsernameClaimed(username: string): Promise<boolean> {
   return Boolean(claim);
 }
 
-export async function claimUsername(input: Request | Headers, username: string) {
+export async function claimUsername(input: Request | Headers | SessionPrincipal, username: string) {
   const principal = await requireUser(input);
   if (!isValidUsername(username)) throw new AppError(400, "INVALID_USERNAME", "Choose a valid, available username.");
   try {
@@ -35,12 +35,12 @@ export async function claimUsername(input: Request | Headers, username: string) 
     throw error;
   }
 }
-export async function listAccountSessions(input: Request | Headers) {
+export async function listAccountSessions(input: Request | Headers | SessionPrincipal) {
   const p = await requireUser(input);
-  const rows = await getDatabase().select({ id: session.id, createdAt: session.createdAt, expiresAt: session.expiresAt }).from(session).where(eq(session.userId, p.userId));
+  const rows = await getDatabase().select({ id: session.id, createdAt: session.createdAt }).from(session).where(eq(session.userId, p.userId));
   return rows.map(row => ({ ...row, current: row.id === p.sessionId }));
 }
-export async function revokeAccountSessions(input: Request | Headers, sessionId?: string) {
+export async function revokeAccountSessions(input: Request | Headers | SessionPrincipal, sessionId?: string) {
   const p = await requireUser(input, { recent: true });
   await getDatabase().delete(session).where(and(eq(session.userId, p.userId), sessionId ? eq(session.id, sessionId) : undefined));
 }

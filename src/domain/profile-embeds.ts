@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "./zod";
 import { contrastRatio } from "./profile-colors";
 
 export const maxProfileEmbeds = 6;

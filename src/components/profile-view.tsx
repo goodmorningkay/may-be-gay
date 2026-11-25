@@ -10,7 +10,6 @@ import { CopyLink } from "./copy-link";
 import { MusicPlayer } from "./music-player";
 import { ProfileEmbed } from "./profile-embed";
 
-import "./brand.module.css";
 import styles from "./profile-view.module.css";
 import icons from "./profile-icons.module.css";
 
