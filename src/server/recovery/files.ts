@@ -1,5 +1,5 @@
 import { createReadStream, createWriteStream } from "node:fs";
-import { chmod, lstat, mkdir, open, realpath, stat } from "node:fs/promises";
+import { chmod, lstat, mkdir, open, realpath } from "node:fs/promises";
 import { pipeline } from "node:stream/promises";
 import { Transform } from "node:stream";
 import { createHash } from "node:crypto";
@@ -45,4 +45,3 @@ export async function copyBounded(from: string, to: string, max: number) {
   await pipeline(createReadStream(from), bound(max), createWriteStream(to, { flags: "wx", mode: 0o600 }));
   await chmod(to, 0o600); await durable(to);
 }
-export async function size(file: string) { return (await stat(file)).size; }

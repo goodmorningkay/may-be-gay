@@ -1,7 +1,13 @@
 import { profileDocumentSchema, type ProfileDocument } from "./profile";
-import type { ProfileEditorState } from "@/server/profile-editor";
 
-export type EditorState = ProfileEditorState;
+export type EditorState = {
+  profileId: string;
+  username: string;
+  editVersion: number;
+  document: ProfileDocument;
+  publishedRevisionId: string | null;
+  revisions: { id: string; revisionNumber: number; createdAt: string }[];
+};
 export type EditorAction = "publish" | "unpublish" | { restore: string };
 export type FieldErrors = Record<string, string>;
 export type EditorTransport = {
@@ -32,17 +38,25 @@ export function applyPreset(document: ProfileDocument, preset: ProfileDocument["
 }
 export function changedFields(a: ProfileDocument, b: ProfileDocument): string[] {
   return [...new Set([...Object.keys(a), ...Object.keys(b)])].filter(key =>
-    JSON.stringify(canonical(a[key as keyof ProfileDocument])) !== JSON.stringify(canonical(b[key as keyof ProfileDocument])));
+    !deepEqual(a[key as keyof ProfileDocument], b[key as keyof ProfileDocument]));
 }
 // JSONB and schema parsing can return the same fields in a different order.
 // Equality must compare content or an acknowledged save can loop forever.
-function canonical(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonical);
-  if (value !== null && typeof value === "object") return Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => [key, canonical(item)]));
-  return value;
+function deepEqual(a: unknown, b: unknown): boolean {
+  if (Object.is(a, b)) return true;
+  if (a === null || b === null || typeof a !== "object" || typeof b !== "object") return false;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((item, i) => deepEqual(item, b[i]));
+  }
+  const aObj = a as Record<string, unknown>;
+  const bObj = b as Record<string, unknown>;
+  const aKeys = Object.keys(aObj).filter((k) => aObj[k] !== undefined);
+  const bKeys = Object.keys(bObj).filter((k) => bObj[k] !== undefined);
+  if (aKeys.length !== bKeys.length) return false;
+  return aKeys.every((key) => Object.prototype.hasOwnProperty.call(bObj, key) && deepEqual(aObj[key], bObj[key]));
 }
-const equal = (a: ProfileDocument, b: ProfileDocument) => JSON.stringify(canonical(a)) === JSON.stringify(canonical(b));
-export type EditorSnapshot = {
+const equal = (a: ProfileDocument, b: ProfileDocument) => deepEqual(a, b);
+type EditorSnapshot = {
   server: EditorState;
   local: ProfileDocument;
   preview: ProfileDocument;

@@ -38,7 +38,7 @@ export default async function AnalyticsPage() {
   let principal, data, presentation;
   try {
     principal = await requireUser(h);
-    [data, presentation] = await Promise.all([readAnalytics(h), readAccountPresentation(principal.userId)]);
+    [data, presentation] = await Promise.all([readAnalytics(principal), readAccountPresentation(principal.userId)]);
   } catch (error) {
     return <AccessHelp error={error} />;
   }

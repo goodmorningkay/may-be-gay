@@ -35,8 +35,7 @@ export async function commitArchive(m: Manifest, work: string, stores: BackupSto
   if (Buffer.byteLength(serialized) > MANIFEST_MAX) fail("MANIFEST_LIMIT");
   await writePrivate(plain, serialized); await encryptFile(plain, path.join(work, "manifest.enc"), key, MANIFEST_MAX);
   signal.throwIfAborted();
-  const durableStores = stores.filter(s => !s.staging), stagingStores = stores.filter(s => s.staging);
-  if (!durableStores.length) fail("DURABLE_BACKUP_STORE_REQUIRED");
+  if (!stores.length) fail("DURABLE_BACKUP_STORE_REQUIRED");
   let failed = false, retentionPending = 0;
   const commit = async (store: BackupStore) => {
     for (const f of m.files) { signal.throwIfAborted(); await store.put(m.id, f.name, path.join(work, f.name), signal); }
@@ -44,19 +43,8 @@ export async function commitArchive(m: Manifest, work: string, stores: BackupSto
     signal.throwIfAborted(); await store.put(m.id, "manifest.enc", path.join(work, "manifest.enc"), signal);
   };
   // Cleanup can never prevent another durable destination from committing.
-  for (const store of durableStores) { try { await commit(store); } catch { failed = true; } }
-  const committedEverywhere = !failed;
-  // Off-host mode caches at most one snapshot and one journal locally. New local
-  // copies are made ONLY after every durable store has committed. Prune the old
-  // kind first; a failed/incomplete prune blocks cache growth, never off-host I/O.
-  if (committedEverywhere) for (const store of stagingStores) {
-    try {
-      const cleanup = await retain(store, signal, Date.now(), { cutoff: Number.MAX_SAFE_INTEGER, kind: m.kind });
-      if (!cleanup.complete) fail("BACKUP_CACHE_CLEANUP_PENDING");
-      await commit(store);
-    } catch { failed = true; }
-  }
-  for (const store of durableStores) { try { if (!(await retain(store, signal)).complete) retentionPending++; } catch { failed = true; } }
+  for (const store of stores) { try { await commit(store); } catch { failed = true; } }
+  for (const store of stores) { try { if (!(await retain(store, signal)).complete) retentionPending++; } catch { failed = true; } }
   if (failed) fail("ARCHIVE_DESTINATION_OR_RETENTION_FAILED");
   return { retentionPending };
 }
@@ -71,9 +59,8 @@ export async function createArchive(kind: "snapshot" | "journal", options: { url
     const conn = await sql.reserve();
     try {
       await conn`set lock_timeout='10s'`;
-      // Serialize cache replacement/checkpoints through upload without holding
-      // the operations or media locks during provider I/O. A crashed connection
-      // releases this runner lock; there is no stale filesystem lock to clear.
+      // Serialize archive commits and retention. PostgreSQL releases the runner
+      // lock if this connection closes.
       const [{ runner }] = await conn`select pg_try_advisory_lock(740304,1) as runner`;
       if (!runner) fail("BACKUP_ALREADY_RUNNING");
       // Session lock BEFORE BEGIN: no RR snapshot is taken while waiting for a writer.
@@ -94,7 +81,7 @@ export async function createArchive(kind: "snapshot" | "journal", options: { url
       const roles = await conn`select distinct pg_get_userbyid(relowner) as name from pg_class where relnamespace='public'::regnamespace order by name limit 101`;
       if (roles.length > 100 || snapshot.version < 170000) fail("DATABASE_VERSION_OR_ROLES_INVALID");
       const m: Manifest = { version: 1, kind, id: `${kind}-${started}-${randomUUID()}`, createdAt: new Date(snapshot.captured).toISOString(), databaseVersion: snapshot.version,
-        recoverySequence: 0, eventCount: 0, files: [], metadata: { roleNames: roles.map(r => r.name), siteDomain: process.env.SITE_DOMAIN as "may-be.gay", mediaStorage: process.env.MEDIA_STORAGE as "local", sourceDatabase: databaseIdentity(url), sourceMedia: mediaIdentity(), mediaPublicOrigin: process.env.MEDIA_PUBLIC_ORIGIN || "https://media.may-be.localhost" } };
+        recoverySequence: 0, eventCount: 0, files: [], metadata: { roleNames: roles.map(r => r.name), siteDomain: process.env.SITE_DOMAIN || "may-be.gay", mediaStorage: process.env.MEDIA_STORAGE as "local", sourceDatabase: databaseIdentity(url), sourceMedia: mediaIdentity(), mediaPublicOrigin: process.env.MEDIA_PUBLIC_ORIGIN || "https://media.may-be.localhost" } };
       const [{ high }] = await conn`select coalesce(max(sequence),0)::text as high from recovery_events`;
       m.recoverySequence = Number(high);
       if (kind === "snapshot") {

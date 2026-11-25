@@ -1,9 +1,10 @@
-import { z } from "zod";
+import { z } from "./zod";
 import { getSiteDomain, isValidUsername } from "./hosts";
 import { registrationModes } from "./registration";
+import { reportReasons } from "./report-reasons";
 import type { ProfileDocument } from "./profile";
 
-export const reportReasons = ["harassment", "impersonation", "unsafe-link", "copyright", "other"] as const;
+export { reportReasons };
 export const reportSchema = z.object({
   username: z.string().max(30).refine(isValidUsername),
   linkId: z.uuid().optional(), mediaId: z.uuid().optional(),

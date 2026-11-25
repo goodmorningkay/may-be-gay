@@ -77,7 +77,11 @@ describe.skipIf(!url)("durable PostgreSQL claims", () => {
   });
   it("shutdown stops active work and leaves the lease for recovery", async () => {
     await enqueue(); const stop = new AbortController(), c = (await queue.claim())!;
-    await executeClaim(queue, c, stop.signal, async (_c, s) => { stop.abort(); expect(s.aborted).toBe(true); return "LEASE_LOST_OR_SHUTDOWN"; });
+    await expect(executeClaim(queue, c, stop.signal, async (_c, s) => {
+      stop.abort();
+      expect(s.aborted).toBe(true);
+      return undefined;
+    })).rejects.toThrow("WORKER_SHUTDOWN");
     const [r] = await h.client`select state from jobs`; expect(r.state).toBe("running");
   });
   it("strict processor payload validation fails terminally without retrying", async () => {
@@ -91,15 +95,16 @@ describe.skipIf(!url)("durable PostgreSQL claims", () => {
     await enqueue(); const c = (await queue.claim())!;
     const running = executeClaim(queue, c, new AbortController().signal, async (_c, s) => {
       await new Promise<void>(resolve => { s.addEventListener("abort", () => resolve(), { once: true }); });
-      return "LEASE_LOST_OR_SHUTDOWN";
+      return undefined;
     }, 10);
+    const interrupted = expect(running).rejects.toThrow("JOB_LEASE_LOST");
     await h.client`update jobs set locked_at=now()-interval '2 minutes' where id=${c.id}`;
     await queue.reclaim(); await h.client`update jobs set available_at=now() where id=${c.id}`;
-    const next = (await queue.claim())!; await running;
+    const next = (await queue.claim())!; await interrupted;
     expect(next.locked_by).not.toBe(c.locked_by);
     expect((await h.client`select locked_by from jobs where id=${c.id}`)[0].locked_by).toBe(next.locked_by);
   });
-  it("missing real provider fails safely through the actual child processor", async () => {
+  it("missing real provider fails safely through the worker processor", async () => {
     delete process.env.MAIL_TRANSPORT; process.env.SITE_DOMAIN = "may-be.localhost";
     await enqueue("email", { template: "verification", to: "fixture@example.invalid", url: "https://app.may-be.localhost/verify" });
     await executeClaim(queue, (await queue.claim())!, new AbortController().signal);

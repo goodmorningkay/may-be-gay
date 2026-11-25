@@ -11,6 +11,6 @@ export async function DELETE(request: Request) {
     const p = await requireUser(request, { recent: true });
     await rateLimit(`sessions:${p.userId}`, 20, 60);
     const { sessionId } = await readJson(request, z.object({ sessionId: z.string().max(128).optional() }).strict());
-    await revokeAccountSessions(request, sessionId); return apiJson({ status: true });
+    await revokeAccountSessions(p, sessionId); return apiJson({ status: true });
   } catch (error) { return apiError(error); }
 }

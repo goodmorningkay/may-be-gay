@@ -10,11 +10,11 @@ import type { Transaction } from "./db/types";
 import { jobs } from "./db/schema";
 import { appOrigin } from "./http";
 
-export const mailPayloadSchema = z.object({
+const mailPayloadSchema = z.object({
   template: z.enum(["verification", "recovery", "invite"]),
   to: z.email().max(254), url: z.url().max(4096),
 }).strict();
-export type MailPayload = z.infer<typeof mailPayloadSchema>;
+type MailPayload = z.infer<typeof mailPayloadSchema>;
 
 function smtpConfiguration(env: NodeJS.ProcessEnv = process.env) {
   if (env.MAIL_TRANSPORT !== "smtp" || env.MAIL_ALLOW_LIVE !== "true") return null;
@@ -28,7 +28,7 @@ function smtpConfiguration(env: NodeJS.ProcessEnv = process.env) {
 export function isMailConfigured(env: NodeJS.ProcessEnv = process.env): boolean {
   if (env.MAIL_TRANSPORT === "local") return !!env.MAIL_OUTBOX_DIR;
   if (env.MAIL_TRANSPORT === "smtp") return smtpConfiguration(env) !== null;
-  return env.MAIL_TRANSPORT === "resend" && env.MAIL_ALLOW_LIVE === "true" && !!env.RESEND_API_KEY && !!env.MAIL_FROM;
+  return false;
 }
 export async function enqueueMail(payload: MailPayload, ownerId?: string, tx?: Transaction) {
   const valid = mailPayloadSchema.parse(payload);
@@ -92,8 +92,5 @@ export async function processEmailJob(job: { id: string; payload: unknown }): Pr
     }
     return;
   }
-  if (process.env.MAIL_TRANSPORT !== "resend" || process.env.MAIL_ALLOW_LIVE !== "true" || !process.env.RESEND_API_KEY || !process.env.MAIL_FROM) throw new Error("MAIL_NOT_CONFIGURED");
-  const response = await fetch("https://api.resend.com/emails", { method: "POST", signal: AbortSignal.timeout(10000), redirect: "error", headers: { authorization: `Bearer ${process.env.RESEND_API_KEY}`, "content-type": "application/json", "idempotency-key": `mbg-email-${job.id}` }, body: JSON.stringify({ from: process.env.MAIL_FROM, ...message }) });
-  await response.body?.cancel();
-  if (!response.ok) throw new Error("EMAIL_DELIVERY_FAILED");
+  throw new Error("MAIL_NOT_CONFIGURED");
 }

@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useState } from "react";
 import type { resolveProfileEmbed } from "@/domain/profile-embeds";
+import { useHydrated } from "./use-hydrated";
 import styles from "./profile-view.module.css";
 
-const subscribe = () => () => {};
 const previewRefreshDelay = 800;
 
 export function ProfileEmbed({ title, source, deferAutoLoad }: {
@@ -15,7 +15,7 @@ export function ProfileEmbed({ title, source, deferAutoLoad }: {
   const { src } = source;
   const isLastFm = source.provider === "Last.fm";
   const [frameSrc, setFrameSrc] = useState<string | null>(isLastFm && !deferAutoLoad ? src : null);
-  const hydrated = useSyncExternalStore(subscribe, () => true, () => false);
+  const hydrated = useHydrated();
   const loaded = frameSrc !== null;
   const action = loaded ? "Hide embed" : "Load Spotify embed";
   const frameClass = isLastFm ? `${styles.embedFrame} ${styles.lastFmFrame}` : styles.embedFrame;

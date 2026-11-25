@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useHydrated } from "./use-hydrated";
 import styles from "./click-to-enter.module.css";
 
 type ClickToEnterProps = {
@@ -9,11 +10,9 @@ type ClickToEnterProps = {
   hasMusic: boolean;
 };
 
-const subscribe = () => () => {};
-
 export function ClickToEnter({ displayName, username, hasMusic }: ClickToEnterProps) {
   const [entered, setEntered] = React.useState(false);
-  const hydrated = React.useSyncExternalStore(subscribe, () => true, () => false);
+  const hydrated = useHydrated();
 
   if (entered) return null;
 

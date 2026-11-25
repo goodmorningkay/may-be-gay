@@ -1,16 +1,12 @@
 import "server-only";
 import { z } from "zod";
-import { AppError, apiJson, readJson } from "@/server/http";
+import { AppError, apiJson, readBoundedBody, readJson } from "@/server/http";
 /** Native form fallback, with the same byte cap as JSON. Never put private
  * details in a query string or redirect. Duplicate and unknown fields fail shut. */
 export async function readReportBody(request: Request): Promise<unknown> {
   if (!request.headers.get("content-type")?.startsWith("application/x-www-form-urlencoded")) return readJson(request, z.unknown(), 4096);
-  const reader = request.body?.getReader(); if (!reader) throw new AppError(400, "INVALID_BODY", "Invalid form.");
-  const chunks: Uint8Array[] = []; let size = 0;
-  try {
-    for (;;) { const part = await reader.read(); if (part.done) break; size += part.value.byteLength; if (size > 4096) { await reader.cancel(); throw new AppError(413, "BODY_TOO_LARGE", "Form too large."); } chunks.push(part.value); }
-  } finally { reader.releaseLock(); }
-  const params = new URLSearchParams(Buffer.concat(chunks).toString("utf8")), data: Record<string, string> = {}, seen = new Set<string>();
+  const raw = await readBoundedBody(request, 4096, "Form too large.", "Invalid form.");
+  const params = new URLSearchParams(raw.toString("utf8")), data: Record<string, string> = {}, seen = new Set<string>();
   for (const [key, value] of params) {
     if (!["username", "reason", "details", "contact", "linkId", "mediaId", "website", "target"].includes(key) || seen.has(key)) throw new AppError(400, "INVALID_BODY", "Invalid form.");
     seen.add(key);

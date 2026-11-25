@@ -27,8 +27,8 @@ const copy = {
   "two-factor": { title: "Confirm your sign-in", action: "Verify code" },
 } satisfies Record<Mode, { title: string; action: string }>;
 
-export function AuthForm({ mode, verificationStatus, claimUsername, takenUsername, siteDomain = "may-be.gay", registrationMode }: {
-  mode: Mode; verificationStatus?: "success" | "error"; claimUsername?: string; takenUsername?: string; siteDomain?: string; registrationMode?: RegistrationMode;
+export function AuthForm({ mode, verificationStatus, claimUsername, takenUsername, returnTo, siteDomain = "may-be.gay", registrationMode }: {
+  mode: Mode; verificationStatus?: "success" | "error"; claimUsername?: string; takenUsername?: string; returnTo?: string; siteDomain?: string; registrationMode?: RegistrationMode;
 }) {
   const [message, setMessage] = useState(
     verificationStatus === "error"
@@ -44,7 +44,7 @@ export function AuthForm({ mode, verificationStatus, claimUsername, takenUsernam
   const inviteInput = useRef<HTMLInputElement>(null);
   const linkInvite = useRef<string | undefined>(undefined);
   const signIn = withClaimUsername("/sign-in", claimUsername);
-  const signedInPath = claimUsername ? withClaimUsername("/editor", claimUsername) : "/account/security";
+  const signedInPath = claimUsername ? withClaimUsername("/editor", claimUsername) : returnTo || "/account/security";
   const verificationPath = withClaimUsername("/verify-email?verified=1", claimUsername);
   const address = claimUsername ? `${claimUsername}.${siteDomain}` : undefined;
   const publicSignup = mode === "sign-up" && registrationMode === "public";

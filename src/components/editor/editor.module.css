@@ -42,13 +42,13 @@
 .editor button:hover:not(:disabled), .button:hover, .entry button:hover:not(:disabled) { background-color: var(--border-subtle); }
 .editor button:disabled, .entry button:disabled { opacity: .48; cursor: not-allowed; }
 .primary { composes: button; }
-.editor button.primary, .entry button.primary {
+.editor button.primary {
   background: var(--accent-white);
   border-color: var(--accent-white);
   color: #1d1d1d;
   font-weight: 700;
 }
-.editor button.primary:hover:not(:disabled), .entry button.primary:hover:not(:disabled) { background: var(--silver); }
+.editor button.primary:hover:not(:disabled) { background: var(--silver); }
 .inlineActions { flex-wrap: wrap; gap: 8px; }
 
 .workspace { display: grid; grid-template-columns: 168px minmax(0, 1fr) minmax(270px, 34.06%); gap: 24px; align-items: start; padding-top: 26px; }
@@ -74,7 +74,7 @@
   letter-spacing: -.047em;
 }
 .section > h2 { margin-bottom: 17px; }
-.section p, .field p { margin: 0; }
+.section p { margin: 0; }
 .section > .hint + .hint { margin-top: 8px; }
 .sectionHeading { flex-wrap: wrap; }
 .sectionFooter { margin-top: 17px; padding-top: 17px; border-top: 1px solid var(--border-subtle); }
@@ -87,7 +87,7 @@
 .toggleField { display: grid; gap: 6px; margin-top: 17px; }
 .field + .field, .twoColumns + .field, .mediaRows + .field, .field + .checkRow, .twoColumns + .twoColumns { margin-top: 17px; }
 .field > label, .sectionPicker > label, .controlLabel { font-size: 13px; font-weight: 600; line-height: 18px; margin: 0; }
-.field input:not([type="color"]), .field textarea, .editor select, .addressInput input {
+.field input:not([type="color"]), .field textarea, .editor select {
   width: 100%;
   min-width: 0;
   min-height: 43px;
@@ -266,10 +266,6 @@ a.shortcut { color: var(--silver); }
 .editor .dangerText { color: var(--danger); }
 .entry { composes: dark from "../brand.module.css"; padding: max(5vh, 24px) max(calc((100% - 34rem) / 2), 20px); }
 .entry h1 { font: 700 clamp(2rem, 5vw, 3rem)/1.1 var(--display-font); letter-spacing: -.047em; }
-.entry form > label { display: block; margin-bottom: 8px; font-weight: 600; }
-.entry nav { margin-top: 24px; }
-.addressInput { display: flex; align-items: center; gap: 8px; }
-.addressInput input { flex: 1; min-width: 4rem; }
 .srOnly { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; clip-path: inset(50%); overflow: hidden; white-space: nowrap; border: 0; }
 
 @media (max-width: 68rem) {

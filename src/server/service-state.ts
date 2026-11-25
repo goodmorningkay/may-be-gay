@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 import { getDatabase } from "./db";
 import { recoveryStatus } from "./db/schema-worker";
 
-export type ServiceState = "open" | "closed" | "unavailable";
+type ServiceState = "open" | "closed" | "unavailable";
 
 /** Every restored DB has an offline restore status. Validation never authorizes
  * reopening: an operator must explicitly remove that status and the file gate.

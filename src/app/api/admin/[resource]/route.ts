@@ -10,8 +10,8 @@ export async function GET(request: Request, context: { params: Promise<{ resourc
 }
 export async function POST(request: Request, context: { params: Promise<{ resource: string }> }) {
   try {
-    await requireAdmin(request);
+    const principal = await requireAdmin(request);
     if ((await context.params).resource !== "actions") return apiJson({ error: { code: "NOT_FOUND", message: "Action route unavailable." } }, 404);
-    return apiJson(await mutateAdmin(request, await readJson(request, adminActionSchema, 4096)));
+    return apiJson(await mutateAdmin(principal, await readJson(request, adminActionSchema, 4096), true));
   } catch (error) { return operationsError(error); }
 }

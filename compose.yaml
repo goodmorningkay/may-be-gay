@@ -16,8 +16,6 @@ x-runtime-environment: &runtime-environment
   MEDIA_LOCAL_ROOT: /app/var/media
   SERVICE_CLOSED_FILE: /app/var/service/SERVICE_CLOSED
   BACKUP_WORK_ROOT: /app/var/recovery
-  NATIVE_PARSER_LOCK_FILE: /app/var/native/parser.lock
-  OPERATIONS_LOG_ROOT: /app/var/logs
   OPERATIONS_DISK_PATH: /app/var/media
   MAIL_DAILY_QUOTA: "100"
 
@@ -72,7 +70,6 @@ services:
       - media_data:/app/var/media
       - mail_outbox:/app/var/mail
       - service_state:/app/var/service:ro
-      - native_lock:/app/var/native
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -98,9 +95,7 @@ services:
       - media_data:/app/var/media
       - mail_outbox:/app/var/mail
       - service_state:/app/var/service:ro
-      - operations_logs:/app/var/logs
       - recovery_work:/app/var/recovery
-      - native_lock:/app/var/native
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -113,25 +108,6 @@ services:
     mem_limit: 1536m
     cpus: 1.0
     stop_grace_period: 30s
-    logging: *bounded-logs
-    networks: [web, database]
-    restart: unless-stopped
-
-  checks:
-    build:
-      context: .
-      target: worker
-    command: [node, --conditions=react-server, --import, tsx, scripts/check-operations.ts, --watch]
-    environment: *runtime-environment
-    volumes:
-      - media_data:/app/var/media:ro
-      - operations_logs:/app/var/logs
-    depends_on:
-      worker:
-        condition: service_healthy
-    mem_limit: 192m
-    cpus: 0.25
-    stop_grace_period: 40s
     logging: *bounded-logs
     networks: [web, database]
     restart: unless-stopped
@@ -167,6 +143,4 @@ volumes:
   media_data:
   mail_outbox:
   service_state:
-  operations_logs:
   recovery_work:
-  native_lock:

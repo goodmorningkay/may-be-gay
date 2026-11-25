@@ -2,7 +2,7 @@ import "server-only";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { deleteAccountSchema } from "@/domain/operations";
-import { requireUser } from "@/server/auth/session";
+import { requireUser, type SessionPrincipal } from "@/server/auth/session";
 import { getDatabase } from "@/server/db";
 import { invites, jobs, profiles, reports, user, verification } from "@/server/db/schema";
 import { mediaStorage } from "@/server/db/schema-media";
@@ -13,10 +13,10 @@ import { rateLimit } from "@/server/rate-limit";
 import { assertPrincipal, audit, lockOwner, operationsLock } from "./core";
 import { journal, markAccountDeleted } from "./recovery";
 import { checkAccountIdentity, requireAccountIdentity } from "@/server/account-identity";
-export async function deleteAccount(request: Request, raw: unknown) {
-  deleteAccountSchema.parse(raw);
-  const p = await requireUser(request, { recent: true });
-  const expectedAccountId = requireAccountIdentity(request);
+export async function deleteAccount(input: Request | { principal: SessionPrincipal; expectedAccountId: string }, raw: unknown, alreadyParsed = false) {
+  if (!alreadyParsed) deleteAccountSchema.parse(raw);
+  const p = input instanceof Request ? await requireUser(input, { recent: true }) : await requireUser(input.principal, { recent: true });
+  const expectedAccountId = input instanceof Request ? requireAccountIdentity(input) : input.expectedAccountId;
   await rateLimit(`operations:delete:${p.userId}`, 3, 3600);
   await getDatabase().transaction(async tx => {
     await operationsLock(tx);
@@ -30,7 +30,7 @@ export async function deleteAccount(request: Request, raw: unknown) {
   });
   return { accepted: true, message: "Your account is unavailable and sessions are revoked. Private records and media are queued for removal within 24 hours when workers and storage are healthy. Cleanup and CDN invalidation are still pending; backups expire on their retention schedule." };
 }
-export const accountDeletionPayloadSchema = z.object({ version: z.literal(1), ownerId: z.string().min(1).max(128) }).strict();
+const accountDeletionPayloadSchema = z.object({ version: z.literal(1), ownerId: z.string().min(1).max(128) }).strict();
 /** Dispatcher owns leases/retries. Resolves after records are removed and all
  * storage deletion jobs are durably queued, not after provider/CDN completion. */
 export async function processAccountDeletionJob(payload: unknown): Promise<void> {

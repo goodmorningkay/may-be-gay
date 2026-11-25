@@ -1,40 +1,66 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { runProcessor } from "../../src/server/worker/process";
-import { failureCode } from "../../src/server/worker/errors";
-import { certificateDays, deliverAlerts } from "../../src/server/worker/checks";
-import type { Claim } from "../../src/server/worker/queue";
-import { compileGuardian } from "./native-supervision-fixture";
-describe("bounded subprocesses and redaction", () => {
-  let guardian: Awaited<ReturnType<typeof compileGuardian>>;
-  beforeAll(async () => { guardian = await compileGuardian(); vi.stubEnv("NATIVE_GUARDIAN_BIN", guardian.binary); });
-  afterAll(async () => { vi.unstubAllEnvs(); await guardian?.dispose(); });
-  it("kills the side-effect process on deadline, waits for exit", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "worker-test-"));
-    try {
-      const entry = path.join(root, "hang.cjs"), marker = path.join(root, "late");
-      await writeFile(entry, `setTimeout(()=>require('node:fs').writeFileSync(${JSON.stringify(marker)},'bad'),1000);setInterval(()=>{},50);`);
-      expect(await runProcessor({} as Claim, new AbortController().signal, 100, entry)).toBe("PROCESSOR_TIMEOUT");
-      const { existsSync } = await import("node:fs"); expect(existsSync(marker)).toBe(false);
-    } finally { await rm(root, { recursive: true, force: true }); }
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { executeClaim, runInProcess } from "../../src/server/worker/runtime";
+import { failureCode } from "../../src/server/worker/processor";
+import type { Claim, Queue } from "../../src/server/worker/queue";
+import * as processor from "../../src/server/worker/processor";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.useRealTimers();
+});
+
+describe("in-process worker bounds and redaction", () => {
+  it("leaves the claim leased when an in-process job times out", async () => {
+    vi.useFakeTimers();
+    const dispatch = vi.spyOn(processor, "dispatch").mockImplementation(() => new Promise(() => {}));
+    const queue = { finish: vi.fn() } as unknown as Queue;
+    const running = executeClaim(queue, { kind: "media" } as Claim, new AbortController().signal,
+      (claim, signal) => runInProcess(claim, signal, undefined, 100));
+    const interrupted = expect(running).rejects.toThrow("PROCESSOR_TIMEOUT");
+    await vi.advanceTimersByTimeAsync(101);
+    await interrupted;
+    expect(dispatch).toHaveBeenCalledOnce();
+    expect(queue.finish).not.toHaveBeenCalled();
   });
-  it("preserves processor claim stdin and successful result IPC through the guardian", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "worker-test-"));
-    try {
-      const entry = path.join(root, "result.cjs");
-      await writeFile(entry, `let input='';process.stdin.on('data',c=>input+=c);process.stdin.on('end',()=>{process.send({code:JSON.parse(input).kind==='email'?'OK':'INVALID'});process.disconnect();});`);
-      expect(await runProcessor({ kind: "email" } as Claim, new AbortController().signal, 5000, entry)).toBeUndefined();
-    } finally { await rm(root, { recursive: true, force: true }); }
+
+  it("aborts an in-process job on signal and skips queue.finish in executeClaim", async () => {
+    const abort = new AbortController();
+    const queue = {
+      sql: {},
+      renew: vi.fn(async () => true),
+      finish: vi.fn(async () => true),
+    } as unknown as Queue;
+
+    const running = executeClaim(
+      queue,
+      { kind: "media", created_at: new Date() } as Claim,
+      abort.signal,
+      async (_claim, signal) => {
+        abort.abort();
+        expect(signal.aborted).toBe(true);
+        return "LEASE_LOST_OR_SHUTDOWN";
+      },
+    );
+
+    await expect(running).rejects.toThrow("WORKER_SHUTDOWN");
+    expect(queue.finish).not.toHaveBeenCalled();
   });
-  it("does not expose raw provider messages, tokens, payloads", () => {
+
+  it("does not expose raw provider messages, tokens, or payloads", () => {
     expect(failureCode(new Error("secret token private/key email@example.invalid"))).toBe("PROCESSOR_FAILED");
     expect(failureCode({ code: "MEDIA_STORAGE_UNAVAILABLE", message: "secret" })).toBe("MEDIA_STORAGE_UNAVAILABLE");
+    expect(failureCode(Object.assign(new Error("bad payload"), { name: "ZodError" }))).toBe("INVALID_JOB_PAYLOAD");
   });
-  it("rejects unbounded certificate targets and gates live alerts", async () => {
-    await expect(certificateDays("127.0.0.1")).rejects.toThrow("CERTIFICATE_TARGET_INVALID");
-    process.env.OPERATIONS_ALERT_TRANSPORT = "slack"; delete process.env.OPERATIONS_ALLOW_LIVE_ALERTS;
-    await expect(deliverAlerts([])).rejects.toThrow("LIVE_ALERTS_DISABLED"); delete process.env.OPERATIONS_ALERT_TRANSPORT;
+
+  it.each([
+    { kind: "media", age: 0, result: undefined, finish: true },
+    { kind: "email", age: 24 * 3600_000, result: undefined, finish: true },
+    { kind: "email", age: 0, result: "JOB_CLAIM_LOST", finish: false },
+  ])("restarts on a lost $kind claim (age $age, processor result $result)", async ({ kind, age, result, finish }) => {
+    const acknowledge = vi.fn(async () => false);
+    const queue = { finish: acknowledge } as unknown as Queue;
+    const claim = { kind, created_at: new Date(Date.now() - age) } as Claim;
+    await expect(executeClaim(queue, claim, new AbortController().signal, async () => result)).rejects.toThrow("JOB_LEASE_LOST");
+    expect(acknowledge).toHaveBeenCalledTimes(finish ? 1 : 0);
   });
 });

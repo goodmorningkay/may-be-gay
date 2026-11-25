@@ -26,7 +26,7 @@ describe("private local mail and explicit provider configuration", () => {
     directory = await mkdtemp(join(tmpdir(), "accounts-mail-")); await chmod(directory, 0o755);
     vi.stubEnv("SITE_DOMAIN", "may-be.localhost"); vi.stubEnv("MAIL_TRANSPORT", "local"); vi.stubEnv("MAIL_OUTBOX_DIR", directory);
     await expect(processEmailJob(job)).rejects.toThrow("PRIVATE_MAIL_OUTBOX_REQUIRED");
-    vi.stubEnv("MAIL_TRANSPORT", "resend"); vi.stubEnv("MAIL_ALLOW_LIVE", "false");
+    vi.stubEnv("MAIL_TRANSPORT", "smtp"); vi.stubEnv("MAIL_ALLOW_LIVE", "false");
     const fetcher = vi.spyOn(globalThis, "fetch");
     await expect(processEmailJob(job)).rejects.toThrow("MAIL_NOT_CONFIGURED");
     expect(fetcher).not.toHaveBeenCalled();

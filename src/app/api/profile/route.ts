@@ -13,6 +13,6 @@ export async function PUT(request: Request) {
   try {
     const principal = await requireUser(request);
     const profileId = requireEditorIdentity(request);
-    return apiJson(await saveProfile(principal, await readJson(request, saveProfileSchema, 128 * 1024), profileId));
+    return apiJson(await saveProfile(principal, await readJson(request, saveProfileSchema, 128 * 1024), profileId, { validated: true }));
   } catch (error) { return apiError(error); }
 }

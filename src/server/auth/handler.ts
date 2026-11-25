@@ -2,7 +2,7 @@ import "server-only";
 import { z } from "zod";
 import { and, eq, isNull } from "drizzle-orm";
 import { createAccountAuth, createAccountAuthInTransaction } from "./config";
-import { requireUser, requireAdmin } from "./session";
+import { requireUser, requireAdmin, type SessionPrincipal } from "./session";
 import { assertUnambiguousAuthCookies } from "./cookies";
 import { handleFactorRequest } from "./factors";
 import { getDatabase } from "../db";
@@ -35,20 +35,23 @@ export async function handleAuth(request: Request): Promise<Response> {
     checkRedirects(Object.fromEntries(url.searchParams));
     // Security controls retain the rendered account. Sign-in challenges have
     // no rendered account/session and continue to use the library challenge.
-    if (request.headers.has("x-account-id")) await requireUser(request, { allowUnverified: true });
+    let principal: SessionPrincipal | undefined;
+    if (request.headers.has("x-account-id")) {
+      principal = await requireUser(request, privatePaths.has(path) ? { recent: true } : { allowUnverified: true });
+    }
     const body = request.method === "POST" ? await readJson(request, z.record(z.string(), z.unknown()), 16384) : undefined;
     if (body) checkRedirects(body);
     if (body && typeof body.email === "string") { try { body.email = normalizeEmail(body.email); } catch { throw new AppError(400, "AUTH_FAILED", "Unable to complete authentication."); } }
     await authRequestLimit(resetCallback ? "/reset-password/callback" : path, typeof body?.email === "string" ? body.email : undefined);
     if (privatePaths.has(path)) {
-      const principal = await requireUser(request, { recent: true });
+      principal ??= await requireUser(request, { recent: true });
       if (path === "/two-factor/disable" && principal.role === "admin") throw new AppError(403, "ADMIN_2FA_REQUIRED", "Administrators must keep two-factor authentication enabled.");
       if (principal.role === "admin" && ["/two-factor/get-totp-uri", "/two-factor/generate-backup-codes"].includes(path)) {
         const [enrollment] = await getDatabase().select({ enabled: user.twoFactorEnabled, verified: twoFactor.verified })
           .from(user).leftJoin(twoFactor, eq(twoFactor.userId, user.id)).where(eq(user.id, principal.userId));
         // Initial password-protected enrollment remains available. Once enrolled,
         // the password alone cannot reveal or replace the existing second factor.
-        if (enrollment?.enabled || enrollment?.verified) await requireAdmin(request);
+        if (enrollment?.enabled || enrollment?.verified) await requireAdmin(principal);
       }
     }
     // Never accept remembered-device bypasses or backup-code verification without session creation.
@@ -100,7 +103,6 @@ export async function handleAuth(request: Request): Promise<Response> {
 /** This server-only library endpoint has no public handler. Mirror all HTTP boundary checks explicitly. */
 export async function reauthenticate(request: Request): Promise<Response> {
   try {
-    assertMutationOrigin(request);
     const principal = await requireUser(request);
     const body = await readJson(request, z.object({ password: z.string().min(1).max(128) }).strict());
     await authRequestLimit("reauthenticate", principal.email);

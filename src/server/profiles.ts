@@ -7,7 +7,7 @@ import { isValidUsername } from "@/domain/hosts";
 import { getDatabase } from "@/server/db";
 import { profiles, profileRevisions, user, usernameClaims } from "@/server/db/schema";
 
-export type PublishedProfile = {
+type PublishedProfile = {
   id: string;
   username: string;
   revisionId: string;
@@ -15,8 +15,20 @@ export type PublishedProfile = {
   media?: PublicMediaMap;
 };
 
-/** Public only: no session access, draft joins, wildcard projections, or shared cache. */
-export async function getPublishedProfile(username: string): Promise<PublishedProfile | null> {
+function publishedProfileWhere(username: string) {
+  return and(
+    eq(usernameClaims.username, username),
+    isNull(usernameClaims.retiredAt),
+    isNull(user.suspendedAt),
+    eq(user.emailVerified, true),
+    isNull(user.deletedAt),
+    isNull(profiles.suspendedAt),
+    isNull(profiles.deletedAt),
+    eq(profileRevisions.schemaVersion, 1),
+  );
+}
+
+async function readPublishedDocument(username: string): Promise<PublishedProfile | null> {
   if (!isValidUsername(username)) return null;
 
   // An unconfigured `next dev` serves the landing page and profile 404s. Production
@@ -35,24 +47,30 @@ export async function getPublishedProfile(username: string): Promise<PublishedPr
       eq(profileRevisions.id, profiles.currentRevisionId),
       eq(profileRevisions.profileId, profiles.id),
     ))
-    .where(and(
-      eq(usernameClaims.username, username),
-      isNull(usernameClaims.retiredAt),
-      isNull(user.suspendedAt),
-      eq(user.emailVerified, true),
-      isNull(user.deletedAt),
-      isNull(profiles.suspendedAt),
-      isNull(profiles.deletedAt),
-      eq(profileRevisions.schemaVersion, 1),
-    )).limit(1);
+    .where(publishedProfileWhere(username)).limit(1);
 
   if (!published) return null;
   try {
-    const document = getPublicDocument(published.document);
-    const ids = getProfileAssetIds(document);
-    return { ...published, document, ...(ids.length ? { media: await getPublicMedia(ids) } : {}) };
+    return { ...published, document: getPublicDocument(published.document) };
   } catch {
     // Malformed/unsupported stored snapshots must never reach a public renderer.
+    return null;
+  }
+}
+
+/** Validate before streaming begins, without fetching media. */
+export async function hasPublishedProfile(username: string): Promise<boolean> {
+  return Boolean(await readPublishedDocument(username));
+}
+
+/** Public only: no session access, draft joins, wildcard projections, or shared cache. */
+export async function getPublishedProfile(username: string): Promise<PublishedProfile | null> {
+  const published = await readPublishedDocument(username);
+  if (!published) return null;
+  try {
+    const ids = getProfileAssetIds(published.document);
+    return { ...published, ...(ids.length ? { media: await getPublicMedia(ids) } : {}) };
+  } catch {
     return null;
   }
 }

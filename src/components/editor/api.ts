@@ -1,5 +1,4 @@
-import "@/components/validation-runtime";
-import { z } from "zod";
+import { z } from "@/domain/zod";
 import { EditorRequestError, type EditorTransport } from "@/domain/editor";
 import { profileDocumentSchema } from "@/domain/profile";
 import { MAX_MEDIA_LIBRARY_ENTRIES } from "@/domain/media";

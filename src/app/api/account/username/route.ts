@@ -8,6 +8,6 @@ export async function POST(request: Request) {
     const p = await requireUser(request);
     await rateLimit(`claim:${p.userId}`, 10, 3600);
     const { username } = await readJson(request, z.object({ username: z.string().max(30) }).strict());
-    return apiJson(await claimUsername(request, username), 201);
+    return apiJson(await claimUsername(p, username), 201);
   } catch (error) { return apiError(error); }
 }

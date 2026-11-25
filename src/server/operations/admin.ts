@@ -1,20 +1,19 @@
 import "server-only";
-import { randomBytes } from "node:crypto";
-import { and, desc, eq, ilike, isNull, or } from "drizzle-orm";
+import { and, desc, eq, ilike, or } from "drizzle-orm";
 import { z } from "zod";
 import { adminActionSchema } from "@/domain/operations";
 import { defaultRegistrationMode } from "@/domain/registration";
-import { requireAdmin } from "@/server/auth/session";
+import { requireAdmin, type SessionPrincipal } from "@/server/auth/session";
 import { getDatabase } from "@/server/db";
-import { accountQuotas, serviceSettings } from "@/server/db/schema-settings";
+import { accountQuotas, DEFAULT_TOTAL_MEDIA_LIMIT_BYTES, serviceSettings } from "@/server/db/schema-settings";
 import { auditEvents, invites, media, profiles, reports, user, usernameClaims } from "@/server/db/schema";
-import { hashInviteToken, normalizeEmail } from "@/server/invites";
+import { issueInvite, revokeInvite } from "@/server/invites";
 import { AppError } from "@/server/http";
 import { rateLimit } from "@/server/rate-limit";
 import { assertPrincipal, audit, lockOwner, operationsLock, pagination } from "./core";
 import { detachAndRemoveMedia, journal, setSuspension } from "./recovery";
 
-export async function readAdmin(input: Request | Headers, resource: string, url = new URL("https://app.invalid")) {
+export async function readAdmin(input: Request | Headers | SessionPrincipal, resource: string, url = new URL("https://app.invalid")) {
   const p = await requireAdmin(input), page = pagination(url);
   await rateLimit(`operations:admin-read:${p.userId}`, 120, 60);
   return getDatabase().transaction(async tx => {
@@ -41,17 +40,17 @@ export async function readAdmin(input: Request | Headers, resource: string, url 
     }
     if (resource === "settings") {
       const [settings] = await tx.select({ registrationMode: serviceSettings.registrationMode, uploadsPaused: serviceSettings.uploadsPaused, accountLimit: serviceSettings.accountLimit, totalMediaLimitBytes: serviceSettings.totalMediaLimitBytes }).from(serviceSettings).where(eq(serviceSettings.id, true));
-      return { settings: settings ?? { registrationMode: defaultRegistrationMode, uploadsPaused: false, accountLimit: null, totalMediaLimitBytes: 5 * 1024 ** 3 } };
+      return { settings: settings ?? { registrationMode: defaultRegistrationMode, uploadsPaused: false, accountLimit: null, totalMediaLimitBytes: DEFAULT_TOTAL_MEDIA_LIMIT_BYTES } };
     }
     if (resource === "audit") return { rows: await tx.select({ id: auditEvents.id, actorId: auditEvents.actorId, subjectUserId: auditEvents.subjectUserId, action: auditEvents.action, createdAt: auditEvents.createdAt }).from(auditEvents).orderBy(desc(auditEvents.createdAt)).limit(limit).offset(offset), page };
     throw new AppError(404, "ADMIN_RESOURCE_NOT_FOUND", "Choose reports, accounts, invites, settings or audit.");
   });
 }
-export async function mutateAdmin(request: Request, raw: unknown) {
-  const p = await requireAdmin(request), input = adminActionSchema.parse(raw);
+export async function mutateAdmin(request: Request | SessionPrincipal, raw: unknown, alreadyParsed = false) {
+  const p = await requireAdmin(request), input = alreadyParsed ? raw as z.infer<typeof adminActionSchema> : adminActionSchema.parse(raw);
   await rateLimit(`operations:admin-mutation:${p.userId}`, 60, 60);
   return getDatabase().transaction(async tx => {
-    await operationsLock(tx);
+    if (input.action === "suspend" || input.action === "remove-media") await operationsLock(tx);
     await lockOwner(tx, p.userId);
     await assertPrincipal(tx, p, true);
     if (input.action === "report") {
@@ -68,14 +67,11 @@ export async function mutateAdmin(request: Request, raw: unknown) {
       await tx.update(serviceSettings).set({ ...settings, updatedAt: new Date() }).where(eq(serviceSettings.id, true));
       await audit(tx, p.userId, "settings.update", undefined, settings);
     } else if (input.action === "invite") {
-      // Transactional facade over the existing invite service's normalization,
-      // hashing and table contract. No bootstrap option, role or implicit mail.
-      const token = randomBytes(32).toString("base64url");
-      const [invite] = await tx.insert(invites).values({ email: normalizeEmail(input.email), tokenHash: hashInviteToken(token), createdBy: p.userId, expiresAt: new Date(Date.now() + input.expiresInHours * 3600000) }).returning({ id: invites.id, email: invites.email, expiresAt: invites.expiresAt });
+      const invite = await issueInvite({ email: input.email, createdBy: p.userId, expiresInHours: input.expiresInHours }, tx);
       await audit(tx, p.userId, "invite.issue", undefined, { inviteId: invite.id });
-      return { invite: { ...invite, token } };
+      return { invite };
     } else if (input.action === "revoke-invite") {
-      await tx.update(invites).set({ revokedAt: new Date() }).where(and(eq(invites.id, input.id), isNull(invites.revokedAt), isNull(invites.redeemedAt)));
+      await revokeInvite(input.id, tx);
       await audit(tx, p.userId, "invite.revoke", undefined, { inviteId: input.id });
     } else {
       const target = await lockOwner(tx, input.userId);

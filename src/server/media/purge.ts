@@ -1,8 +1,8 @@
 import "server-only";
 import { providerUnavailable, storageFailure } from "./errors";
 import type { MediaStorageAdapter } from "./storage";
-export interface MediaPurgeAdapter { purge(urls: string[]): Promise<void> }
-export class LocalMediaPurge implements MediaPurgeAdapter { async purge(_urls: string[]) { void _urls; /* Local reads check live DB references and use no-store. */ } }
+interface MediaPurgeAdapter { purge(urls: string[]): Promise<void> }
+class LocalMediaPurge implements MediaPurgeAdapter { async purge(_urls: string[]) { void _urls; /* Local reads check live DB references and use no-store. */ } }
 export class CloudflareMediaPurge implements MediaPurgeAdapter {
   constructor(readonly zoneId: string, readonly token: string, readonly origin: string) {
     if (!/^[a-f0-9]{32}$/.test(zoneId) || !token || new URL(origin).origin !== origin) throw providerUnavailable();
@@ -16,15 +16,14 @@ export class CloudflareMediaPurge implements MediaPurgeAdapter {
         body: JSON.stringify({ files: urls }), signal: AbortSignal.timeout(10_000), redirect: "error",
       });
       if (!response.ok || !response.body) throw new Error();
-      const reader = response.body.getReader(); let body = "", bytes = 0;
-      try {
-        for (;;) {
-          const { done, value } = await reader.read(); if (done) break;
-          bytes += value.length; if (bytes > 16384) throw new Error();
-          body += Buffer.from(value).toString("utf8");
-        }
-      } finally { void reader.cancel().catch(() => {}); reader.releaseLock(); }
-      if (JSON.parse(body).success !== true) throw new Error();
+      const chunks: Uint8Array[] = [];
+      let bytes = 0;
+      for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) {
+        bytes += chunk.byteLength;
+        if (bytes > 16384) throw new Error();
+        chunks.push(chunk);
+      }
+      if (JSON.parse(Buffer.concat(chunks).toString("utf8")).success !== true) throw new Error();
     } catch { throw storageFailure(); }
   }
 }

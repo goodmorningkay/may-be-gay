@@ -1,10 +1,7 @@
 # Durable worker
 
-Run a single central worker process per host; its dispatch concurrency is one.
-Multiple hosts can safely claim different jobs. The PostgreSQL parser mutex
-coordinates normal parsing; the shared native lock below also covers abrupt JS death.
-Native subprocesses additionally
-require the Linux guardian built from `src/server/subprocess/guardian.c`.
+Run one worker container per host. Each worker processes one job at a time.
+PostgreSQL coordinates claims and media parsing across workers.
 
 ```sh
 NODE_OPTIONS=--conditions=react-server npx tsx --env-file=.env scripts/worker.ts
@@ -25,80 +22,20 @@ job ID, claim identity, attempt number, running state and an unexpired lease.
 Duplicate acknowledgements and acknowledgements from a reclaimed process do
 nothing. Up to 100 expired leases are reclaimed each loop; exhausted ones fail.
 
-The lease is 90 seconds, renewed every ten seconds; each processor runs in its
-own guarded process tree for at most 60 seconds. Lease loss, renewal failure or
-shutdown signals the guardian and waits for its cleanup before doing anything
-else. Children retain the separate 65-second JS watchdog and parent IPC
-disconnect handler. Media's parser has an independent native 20-second deadline
-and only scratch-file side effects. Native parsers retain the existing
-prlimit/FFmpeg/sharp controls and container resource limits. Remote
-requests already accepted by a provider cannot be recalled: processors retain
-their immutable media locators and mail job idempotency key across retries.
-A child rechecks an email's live claim immediately before invoking delivery.
+The lease is 90 seconds and is renewed every ten seconds. Jobs run in the
+worker process with a 60-second deadline. A timeout, lost lease or failed
+renewal stops the container without acknowledging the job. Docker restarts the
+container and the queue reclaims the interrupted claim when its lease expires.
+A watchdog thread stops the process if the main JavaScript event loop goes
+20 seconds without a heartbeat. Run the worker in its own container so the
+container's exit also ends any native subprocesses.
 
-Each guardian uses Linux parent-death signals, a private payload process group,
-and child-subreaper adoption. It kills the payload group on cancellation,
-deadline, parent death, or payload exit (including success), then kills and reaps
-adopted descendants until `waitpid` reports ECHILD. This includes descendants
-that create new sessions/groups. `/proc` inspection is limited to the guardian's
-own direct children; SIGCHLD is blocked and no reaping occurs between listing
-and signalling those children, so their PIDs cannot be recycled in that interval.
-Nested guardians have independent groups and receive TERM instead of KILL so
-they retain their parser locks until their own reaping barrier. Node observes
-completion only after that barrier. The scheduled backup and offline PostgreSQL
-tool boundaries use the same mechanism, with 200-second and 180-second deadlines.
-
-The parser guardian also holds an exclusive `flock` for its complete lifetime,
-including descendant cleanup. The default is
-`$TMPDIR/may-be-parser-<uid>.lock` (Node's temporary directory). Set the absolute
-`NATIVE_PARSER_LOCK_FILE` to one stable file shared by all parser invocations
-in the deployment; web, worker, and offline recovery must use the same inode
-and uid. Never unlink or replace the file while services can run. The lock file
-must be a regular file owned by that uid with mode 0600; symlinks fail closed.
-Waiting for this lock counts against the parser wall deadline. This closes the
-local crash gap where processor death releases its PostgreSQL advisory lock
-before the parser is reaped. The replacement-parser regression checks the old
-descendant PID at the first instruction after acquiring this file lock.
-
-The PostgreSQL lock is still held by the calling JS transaction/session, not
-the native guardian. Consequently separate hosts or containers with independent
-lock files can briefly overlap after an abrupt JS death. A strict deployment-wide
-one-parser guarantee requires a shared filesystem with reliable cross-host flock
-semantics, or moving the global mutex into a surviving supervisor that releases
-it only after the reaping barrier. The existing DB advisory lock alone does not
-prove that guarantee. The local tests do not exercise cross-host locking.
-
-Runtime packaging is required before these calls can succeed. Compile the
-guardian in a build stage with a C compiler and libc development headers:
-
-```sh
-cc -std=c11 -O2 -Wall -Wextra -Werror src/server/subprocess/guardian.c -o may-be-guardian
-```
-
-Copy the executable to `/usr/local/libexec/may-be-guardian` (0755) in every image
-that can invoke parsing, processors, or recovery tools. `NATIVE_GUARDIAN_BIN` can
-select another absolute, trusted executable path for local development/tests.
-There is no unsupervised fallback. The helper needs Linux prctl, signalfd,
-flock, and readable procfs (`/proc/self/task/<pid>/children`, owned child exe
-links). It uses libc only, runs as the service uid, and needs no capabilities or
-setuid. Nested invocations must use the same guardian executable inode (the
-normal immutable-image layout); drain active work before replacing that binary.
-Existing util-linux supplies the retained `/usr/bin/prlimit` controls;
-neither `setpriv` alone nor `timeout` supplies the required descendant join.
-Use an init/subreaper such as Compose `init: true` for every invoking service,
-including one-off recovery containers, to reap an orphan guardian after its JS
-owner dies. Mount a shared private lock directory and configure the lock path
-for separate web/worker/recovery containers. Application and worker images now
-include the compiled guardian and a Tini subreaper entrypoint. Compose shares
-`native_lock:/app/var/native` between app and worker at uid 1000. Offline recovery
-containers must mount that same volume and run at the same uid; retain the image
-entrypoint. The browser fixture similarly shares its private native volume.
-
-Cancellation assumes the guardian itself remains alive and readable procfs is
-available. SIGKILL/OOM of the guardian cannot run its cleanup; an init only reaps
-orphans and does not replace that cleanup. Kernel uninterruptible I/O can delay
-SIGKILL and therefore delay the join indefinitely. Completion never claims that
-a still-running descendant has exited merely because a JS timeout expired.
+The media parser has its own 20-second deadline and writes to scratch space
+under the existing prlimit and container resource limits. PostgreSQL recovery
+tools have a 180-second deadline. The worker rechecks the live claim before
+sending mail. If a provider already accepted a request, it may still complete
+after the container stops, so retries keep the same media locators and mail
+job identity.
 
 Retries start after 2–4 seconds, grow exponentially, cap at ten seconds for
 public deletion/purge and 30 seconds for other jobs, with small jitter. Attempts
@@ -108,20 +45,20 @@ terminally, and missing providers never count as success. Email attempts stop
 uncertain old delivery is failed and scrubbed, never resent days later.
 
 Deletion/purge have first priority, then explicit media reconciliation. Ordinary
-work precedes periodic reconciliation/expiry/sweeps. Every fourth claim uses
+work precedes periodic reconciliation/expiry/sweeps. Every eighth claim uses
 oldest available order among non-urgent work; urgent cleanup retains priority
 in both modes. Email and account deletion progress once urgent work drains.
 This supports the five
 minute media-removal objective when providers and workers are healthy. It is
 not a guarantee during outages; failed/over-age work alerts and keeps locators.
-SIGTERM/SIGINT stops claiming, kills active work, waits for subprocess exit and
-closes DB pools. Interrupted jobs keep their fenced lease for crash recovery.
+SIGTERM or SIGINT stops claiming. During an active job the worker exits and
+leaves its lease for recovery. On idle shutdown it closes its database pools.
 
 Every host enqueues a fresh media sweep and cleans its local scratch on a
 30-second schedule (ten-second scheduler tick), independent of job execution.
-Maintenance runs in a separate process with a 25-second kill deadline so a
-blocked retention query cannot stop scheduling indefinitely. Bounded
-maintenance also calls operationsMaintenance(500), expires sessions,
+Maintenance runs in the worker process. A pass that exceeds 25 seconds exits
+the worker so Docker can restart it. Maintenance calls
+operationsMaintenance(500), expires sessions,
 verification and auth-rate controls, scrubs terminal email payloads immediately,
 fails/scrubs pending email older than 23 hours, and deletes succeeded jobs after
 seven days. Local private mail fixture files expire after 23 hours. Pending,
@@ -132,10 +69,12 @@ With BACKUP_KEY_FILE, BACKUP_KEY_ID and BACKUP_LOCAL_ROOT configured, a separate
 bounded archive scheduler claims worker_schedules rows atomically. Full snapshots
 run daily and separate complete journal checkpoints every minute, with failed
 schedules retried after one minute. A dead scheduler's five-minute reservation
-expires. The archive subprocess has a 200-second supervisor and 180-second own
-deadline. Heartbeat/media sweeps continue while backups run. The journal sequence
-in recovery_status advances only after encrypted archives commit to every
-configured destination. Full checkpoints deliberately include all journal pages;
+expires. Archives request cancellation after 180 seconds. If a scheduled archive
+still has not finished after 200 seconds, the worker exits so Docker can restart
+it. The worker starts archives between claims so a snapshot can finish before a
+job needs its media lock. Heartbeats and maintenance continue while backups run.
+The journal sequence in recovery_status
+advances after the encrypted archive commits to the local store. Full checkpoints deliberately include all journal pages;
 sequence gaps from aborted transactions are allowed, missing pages are not.
 
 Migration 0006 creates worker_heartbeats, worker_schedules and recovery_status,
@@ -147,10 +86,9 @@ The fixture wrappers under infra/operations are for isolated tests only.
 
 Local Compose runs the worker with shared private media/mail volumes, a 1.5 GiB
 memory limit and one CPU. Its heartbeat healthcheck rejects a missing or stale
-heartbeat for that container. The `checks` service runs operational checks every
-minute and keeps bounded private operational logs. Docker logs use the local
-driver with three 10 MiB files per service; this is a size bound, not an age
-retention policy. Configure the host's seven-day operational log policy at launch.
+heartbeat for that container. For a detailed status check, run
+`node --conditions=react-server --import tsx scripts/check-operations.ts`
+inside the worker. Docker keeps three 10 MiB log files per service.
 Archive destinations, credentials and key custody remain explicit operator
 configuration; an unconfigured backup is reported as unavailable.
 
@@ -162,14 +100,9 @@ validation never reopens the service automatically. See recovery.md.
 Acceptance: WORKER_TEST_DATABASE_URL must point to a disposable *_test database,
 separate from every other suite. tests/worker uses real PostgreSQL constraints,
 claim races, stale fencing, renewal loss, retry windows, shutdown, fairness and
-actual unconfigured-mail subprocess failure. All feature tables come from the
+unconfigured-mail job failure. All feature tables come from the
 real migration chain; no temporary feature DDL substitutes for migrations. Do not
 interpret skipped PostgreSQL tests without these variables as acceptance.
 
-`tests/worker/native-supervision.test.ts` needs a local C compiler and no database.
-It executes the real subprocess helpers through Node processor fixtures, waits
-for descendant PID startup, and tests cancellation, abrupt intermediate death,
-independent parent-death cleanup, parser timeout, recovery grandchildren,
-successful-payload cleanup, and lock handoff. It checks PID absence (including
-zombies) at completion and absence of delayed writes. The existing media parser
-contract suite should also run with a compiled `NATIVE_GUARDIAN_BIN` configured.
+`tests/worker/native-supervision.test.ts` exercises the process-group runner,
+including timeout, abort, descendant cleanup and output limits.

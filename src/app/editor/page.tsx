@@ -9,8 +9,6 @@ import { EditorEntry } from "@/components/editor/editor-entry";
 import styles from "@/components/editor/editor.module.css";
 
 export const dynamic = "force-dynamic";
-export const revalidate = 0;
-export const fetchCache = "force-no-store";
 export const metadata: Metadata = { title: "Edit your page", robots: { index: false, follow: false } };
 
 export default async function EditorPage({ searchParams }: { searchParams: Promise<{ username?: string | string[] }> }) {

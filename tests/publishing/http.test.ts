@@ -36,7 +36,7 @@ describe("owner profile HTTP handlers", () => {
   it("passes only session authority and validated full documents to save", async () => {
     const response = await PUT(request("/api/profile", "PUT", { expectedVersion: 3, document: defaultProfileDocument }));
     expect(response.status).toBe(200);
-    expect(services.saveProfile).toHaveBeenCalledWith(principal, { expectedVersion: 3, document: defaultProfileDocument }, profileId);
+    expect(services.saveProfile).toHaveBeenCalledWith(principal, { expectedVersion: 3, document: defaultProfileDocument }, profileId, { validated: true });
   });
   it.each(["ownerId", "profileId"])("rejects submitted %s authority rather than forwarding it", async (field) => {
     const response = await PUT(request("/api/profile", "PUT", { expectedVersion: 3, document: defaultProfileDocument, [field]: "someone-else" }));
@@ -45,11 +45,11 @@ describe("owner profile HTTP handlers", () => {
   });
   it("keeps publication, unpublication and restoration explicit and returns the same current-state shape", async () => {
     expect(await (await publish(request("/api/profile/publish", "POST", { expectedVersion: 3 }))).json()).toEqual(state);
-    expect(services.publishProfile).toHaveBeenCalledWith(principal, 3, profileId);
+    expect(services.publishProfile).toHaveBeenCalledWith(principal, 3, profileId, { validated: true });
     expect(await (await unpublish(request("/api/profile/unpublish", "POST", {}))).json()).toEqual(state);
     expect(services.unpublishProfile).toHaveBeenCalledWith(principal, profileId);
     expect(await (await restore(request(`/api/profile/revisions/${profileId}/restore`, "POST", { expectedVersion: 3 }), { params: Promise.resolve({ id: profileId }) })).json()).toEqual(state);
-    expect(services.restoreProfileRevision).toHaveBeenCalledWith(principal, profileId, 3, profileId);
+    expect(services.restoreProfileRevision).toHaveBeenCalledWith(principal, profileId, 3, profileId, { validated: true });
   });
   it.each([null, "invalid-id"])("requires the editor identity precondition on every mutation (%s)", async identity => {
     const requests = [

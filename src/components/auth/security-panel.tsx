@@ -2,11 +2,12 @@
 
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import { USERNAME_PATTERN } from "@/domain/hosts";
 import { accountRequest as sendAccountRequest } from "./auth-form";
 import chrome from "../site-chrome.module.css";
 import styles from "../operations/operations.module.css";
 
-type SessionRow = { id: string; createdAt: string; expiresAt: string; current: boolean };
+type SessionRow = { id: string; createdAt: string; current: boolean };
 type Authenticator = "off" | "pending" | "enabled";
 const sessionDate = new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" });
 const formHelp = "/api/account/form-help";
@@ -69,7 +70,7 @@ export function SecurityPanel({ accountId, email, initial, initialSessions }: {
         setMessage(`${data.username} is reserved for you. Your page is unpublished.`);
       })}>
         <label className={chrome.field}><span>Username</span><input className={chrome.control} name="username" required
-          minLength={3} maxLength={30} pattern={"[a-z0-9][a-z0-9\\-]{1,28}[a-z0-9]"} autoComplete="off" /></label>
+          minLength={3} maxLength={30} pattern={USERNAME_PATTERN} autoComplete="off" /></label>
         <button className={chrome.primary} disabled={busy}>Claim username</button>
       </form>
     </section>}

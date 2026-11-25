@@ -1,11 +1,11 @@
 "use client";
 
 import * as React from "react";
+import { useHydrated } from "./use-hydrated";
 import styles from "./music-player.module.css";
 
 type MusicPlayerProps = { url: string; attribution: string; durationMs?: number; deferPlay?: boolean };
 const DEFAULT_VOLUME = 0.2;
-const subscribe = () => () => {};
 const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
 
 export function MusicPlayer({ url, attribution, durationMs, deferPlay = false }: MusicPlayerProps) {
@@ -17,7 +17,7 @@ export function MusicPlayer({ url, attribution, durationMs, deferPlay = false }:
   const [duration, setDuration] = React.useState((durationMs ?? 0) / 1000);
   const [position, setPosition] = React.useState(0);
   const [canSeek, setCanSeek] = React.useState(false);
-  const hydrated = React.useSyncExternalStore(subscribe, () => true, () => false);
+  const hydrated = useHydrated();
   const attributionId = React.useId();
 
   React.useEffect(() => {

@@ -24,8 +24,8 @@ export async function generateViewport(): Promise<Viewport> {
 }
 
 export async function generateMetadata(): Promise<Metadata> {
-  const { domain, host, profile } = await readPage();
-  if (!profile) return { title: host.kind === "app" ? "Your editor" : "A link-in-bio page you can make yours" };
+  const { domain, profile } = await readPage();
+  if (!profile) return { title: "A link-in-bio page you can make yours" };
   const title = profile.document.pageTitle || profile.document.displayName;
   const description = profile.document.pageDescription || profile.document.bio;
   const url = `https://${profile.username}.${domain}`;

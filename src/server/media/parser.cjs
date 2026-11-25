@@ -160,7 +160,7 @@ async function stillVariants(data, options) {
   if (full.data.length > 5 * MiB) full = await encodeWebp(data, options, 4096, { quality: 85, effort: 3 });
   if (full.data.length > 5 * MiB) fail();
   let small = full.info.width <= 1600 && full.info.height <= 1600 && full.data.length <= MiB
-    ? { ...full }
+    ? full
     : await encodeWebp(data, options, 1600, { quality: 80, effort: 1 });
   // Final fallback matches the previous two-stage effort-3 encode so borderline
   // <=1 MiB images that previously passed are never rejected.
